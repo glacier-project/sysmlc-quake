@@ -1,3 +1,7 @@
-from sysml2frost.sismic.builder import build_statechart
+from .builder import build_statechart
+from .sismic_py_codegen import SismicPyCodeGen
 
-__all__ = ["build_statechart"]
+__all__ = [
+    "build_statechart",
+    "SismicPyCodeGen"
+]
