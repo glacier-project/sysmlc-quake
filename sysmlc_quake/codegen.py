@@ -4,13 +4,13 @@ from typing import override
 
 import syside
 
-from ..python.py_codegen import PyCodeGen, PyCodeGenContext
+from ...codegen.python import PythonCodeGen, PythonCodeGenContext
 
 
-class SismicPyCodeGen(PyCodeGen):
+class SismicCodeGen(PythonCodeGen):
     """Python code generator for Sismic statecharts."""
 
-    def __init__(self, context: PyCodeGenContext | None = None) -> None:
+    def __init__(self, context: PythonCodeGenContext | None = None) -> None:
         super().__init__(context)
 
     @override

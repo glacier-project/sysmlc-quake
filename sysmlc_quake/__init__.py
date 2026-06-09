@@ -1,4 +1,4 @@
 from .builder import build_statechart
-from .sismic_py_codegen import SismicPyCodeGen
+from .codegen import SismicCodeGen
 
-__all__ = ["SismicPyCodeGen", "build_statechart"]
+__all__ = ["SismicCodeGen", "build_statechart"]

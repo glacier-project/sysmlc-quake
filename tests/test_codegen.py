@@ -7,18 +7,17 @@ if TYPE_CHECKING:
 
 import syside
 
-from sysml2frost.generator.python.py_codegen import PyCodeGenContext
-from sysml2frost.generator.sismic.sismic_py_codegen import SismicPyCodeGen
-
-from .. import _load_inline_model, _single_element
-
-
-def _get_sismic_py_codegen(quote: str) -> SismicPyCodeGen:
-    context = PyCodeGenContext(string_delimiter=quote)
-    return SismicPyCodeGen(context)
+from sysmlc.backends.quake.codegen import SismicCodeGen
+from sysmlc.codegen.python import PythonCodeGenContext
+from tests import _load_inline_model, _single_element
 
 
-class TestSismicPyCodeGen:
+def _get_sismic_py_codegen(quote: str) -> SismicCodeGen:
+    context = PythonCodeGenContext(string_delimiter=quote)
+    return SismicCodeGen(context)
+
+
+class TestSismicCodeGen:
     def test_send_action_typed_result_keeps_source(
         self, string_delimiter: str, tmp_path: Path
     ) -> None:
