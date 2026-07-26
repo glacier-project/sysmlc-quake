@@ -82,6 +82,7 @@ class SismicBuilder:
 
     Implements the ``TargetBuilder`` protocol. This is where every
     sismic-specific representational choice lives:
+
     - the flat preamble, with its name-collision policy;
     - the ``do`` -> run-once ``on_entry`` fusion;
     - the ``then done`` -> ``FinalState`` synthesis;
