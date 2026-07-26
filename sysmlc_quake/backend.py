@@ -5,13 +5,13 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, ClassVar, override
 
 from sismic.model import Statechart
-
 from sysmlc.backends.base import Backend, OutputOptions
-from sysmlc.backends.quake import runner
-from sysmlc.backends.quake.builder import build_statechart
-from sysmlc.backends.quake.parts import QuakePartSystem, build_part_system
-from sysmlc.backends.quake.serialize import to_plantuml, to_yaml
 from sysmlc.errors import SerializationError, UnsupportedConstructError
+
+from sysmlc_quake import runner
+from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.parts import QuakePartSystem, build_part_system
+from sysmlc_quake.serialize import to_plantuml, to_yaml
 
 if TYPE_CHECKING:
     from pathlib import Path

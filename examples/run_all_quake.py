@@ -40,12 +40,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from sysmlc_models.showcase import SHOWCASE_DIR
-from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
-
 from sysmlc import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions, top_level_part_usages
+from sysmlc_models.showcase import SHOWCASE_DIR
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 CORPUS_DIRS = (SHOWCASE_DIR, SM_EXAMPLES_DIR)

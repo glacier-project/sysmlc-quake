@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sismic.interpreter import Interpreter
+from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
-from sysmlc.backends.quake import build_statechart
-from sysmlc.sysml.loading import load_model
+from sysmlc_quake import build_statechart
 from tests import _load_inline_model
-from tests.backends.quake.conftest import (
+from tests.conftest import (
     QUAKE_PREAMBLE_IMPORTS,
     transition_from,
 )

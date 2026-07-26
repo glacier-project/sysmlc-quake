@@ -10,15 +10,15 @@ from sismic.clock import SimulatedClock
 from sismic.exceptions import CodeEvaluationError
 from sismic.helpers import coverage_from_trace
 from sismic.interpreter import Interpreter
-from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
-
 from sysmlc import configure_logging
-from sysmlc.backends.quake import build_statechart
-from sysmlc.backends.quake.coordinator import StopReason, run_to_quiescence
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.logging import PACKAGE_LOGGER_NAME
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import iter_elements
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
+
+from sysmlc_quake import build_statechart
+from sysmlc_quake.coordinator import StopReason, run_to_quiescence
 
 if TYPE_CHECKING:
     from collections import Counter

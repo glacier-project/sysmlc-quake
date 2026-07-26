@@ -4,10 +4,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-
-from sysmlc.backends.quake import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
+
+from sysmlc_quake import build_statechart
 
 if TYPE_CHECKING:
     import syside

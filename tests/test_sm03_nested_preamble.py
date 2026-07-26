@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sismic.interpreter import Interpreter
-
-from sysmlc.backends.quake import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import quake_preamble
+
+from sysmlc_quake import build_statechart
+from tests.conftest import quake_preamble
 
 if TYPE_CHECKING:
     import syside

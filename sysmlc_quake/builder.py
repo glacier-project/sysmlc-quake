@@ -12,13 +12,6 @@ from sismic.model import (
     Statechart,
     Transition,
 )
-
-from sysmlc.backends.quake.codegen import (
-    TICK_METADATA_KEY,
-    QuakeRenderNeeds,
-    SismicCodeGen,
-    math_import_lines,
-)
 from sysmlc.codegen.python import join_statements
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, transitions
@@ -37,6 +30,13 @@ from sysmlc.semantics.statemachine.facts import (
     TransitionFact,
     Trigger,
     WhenTrigger,
+)
+
+from sysmlc_quake.codegen import (
+    TICK_METADATA_KEY,
+    QuakeRenderNeeds,
+    SismicCodeGen,
+    math_import_lines,
 )
 
 if TYPE_CHECKING:

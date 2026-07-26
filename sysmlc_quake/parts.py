@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sysmlc.backends.quake.builder import build_statechart
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
 from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
+
+from sysmlc_quake.builder import build_statechart
 
 if TYPE_CHECKING:
     import syside

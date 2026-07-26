@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sismic.interpreter import Interpreter
-
-from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import ALL_EXAMPLE_QN_PAIRS
+
+from sysmlc_quake import build_statechart
+from tests.conftest import ALL_EXAMPLE_QN_PAIRS
 
 if TYPE_CHECKING:
-    from tests.backends.quake.conftest import SmExample
+    from tests.conftest import SmExample
 
 
 @pytest.mark.parametrize(

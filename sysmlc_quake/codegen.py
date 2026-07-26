@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
-
 from sysmlc.codegen.python import (
     ATOM_PRECEDENCE,
     LIBRARY_FUNCTIONS,

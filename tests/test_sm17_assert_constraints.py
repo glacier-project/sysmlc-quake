@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.exceptions import InvariantError
 from sismic.interpreter import Interpreter
-
-from sysmlc.backends.quake import build_statechart
-from sysmlc.backends.quake.serialize import to_yaml
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import (
+
+from sysmlc_quake import build_statechart
+from sysmlc_quake.serialize import to_yaml
+from tests.conftest import (
     QUAKE_PREAMBLE_IMPORTS,
     SM_EXAMPLES_BY_DIR,
 )

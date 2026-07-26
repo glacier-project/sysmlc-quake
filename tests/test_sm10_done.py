@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 from sismic.model import FinalState
-
-from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import SM_EXAMPLES_BY_DIR, has_transition
+
+from sysmlc_quake import build_statechart
+from tests.conftest import SM_EXAMPLES_BY_DIR, has_transition
 
 if TYPE_CHECKING:
     import syside

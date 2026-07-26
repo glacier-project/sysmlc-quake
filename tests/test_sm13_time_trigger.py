@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.exceptions import CodeEvaluationError
 from sismic.interpreter import Interpreter
-
-from sysmlc.backends.quake import build_statechart
 from sysmlc.sysml.loading import load_model
-from tests.backends.quake.conftest import (
+
+from sysmlc_quake import build_statechart
+from tests.conftest import (
     SM_EXAMPLES_BY_DIR,
     quake_preamble,
     transition_from,

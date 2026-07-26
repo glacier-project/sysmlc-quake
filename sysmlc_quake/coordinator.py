@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, cast
 from sismic.clock import SimulatedClock
 from sismic.interpreter import Interpreter
 
-from sysmlc.backends.quake.codegen import (
+from sysmlc_quake.codegen import (
     ROUTER_CONTEXT_KEY,
     TICK_METADATA_KEY,
 )
@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from typing import Any
 
     from sismic.model import Event, MacroStep
-
-    from sysmlc.backends.quake.parts import QuakePartSystem
     from sysmlc.semantics.parts.routing import PortSignalRoute
+
+    from sysmlc_quake.parts import QuakePartSystem
 
 
 @dataclass(frozen=True)

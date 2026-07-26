@@ -6,9 +6,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import syside
-
-from sysmlc.backends.quake.codegen import SismicCodeGen
 from sysmlc.codegen.python import PythonCodeGenContext
+
+from sysmlc_quake.codegen import SismicCodeGen
 from tests import _load_inline_model, _single_element
 
 

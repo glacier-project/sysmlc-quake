@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING
 from sismic.clock import SimulatedClock
 from sismic.exceptions import SismicError
 from sismic.interpreter import Interpreter
+from sysmlc.errors import ExecutionError
 
-from sysmlc.backends.quake.builder import build_statechart
-from sysmlc.backends.quake.coordinator import (
+from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.coordinator import (
     CoordinatedStep,
     PartSystemCoordinator,
     StopReason,
     run_to_quiescence,
 )
-from sysmlc.backends.quake.parts import build_part_system
-from sysmlc.errors import ExecutionError
+from sysmlc_quake.parts import build_part_system
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
