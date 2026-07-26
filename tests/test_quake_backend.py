@@ -140,14 +140,6 @@ def test_summary_reports_part_system(backend: QuakeBackend) -> None:
     assert "2 routes" in summary
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "the pinned core still registers its own bundled quake entry point, "
-        "so discovery rejects the duplicate name; remove this marker in the "
-        "commit that bumps the lock to a core without the bundled backend"
-    ),
-)
 def test_quake_backend_is_discoverable() -> None:
     backends = discover_backends()
     assert "quake" in backends
