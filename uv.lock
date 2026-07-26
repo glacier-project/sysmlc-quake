@@ -1243,11 +1243,9 @@ wheels = [
 [[package]]
 name = "sysmlc"
 version = "0.0.0"
-source = { git = "https://github.com/glacier-project/sysmlc-core?branch=dev#24a4ed46f49a960f2cba37cf1684ce777a8294a3" }
+source = { git = "https://github.com/glacier-project/sysmlc-core?branch=dev#886b056f191c3239b5232a3d75190123c5872adc" }
 dependencies = [
-    { name = "jinja2" },
     { name = "pyyaml" },
-    { name = "sismic" },
     { name = "syside" },
 ]
 
