@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
-from sysmlc.backends.quake.coordinator import (
+from sysmlc_quake.coordinator import (
     PartSystemCoordinator,
     StopReason,
 )
-from sysmlc.backends.quake.parts import QuakePartSystem, build_part_system
-from sysmlc.errors import UnsupportedConstructError
-from sysmlc.sysml.loading import load_model
+from sysmlc_quake.parts import QuakePartSystem, build_part_system
 from tests import _load_inline_model
 
 FIX = SM_EXAMPLES_DIR / "part01-two-parts"
@@ -19,7 +19,7 @@ MUX = SM_EXAMPLES_DIR / "part-mux"
 MULTI = SM_EXAMPLES_DIR / "part-multi-exhibit"
 UNDECLARED_VIA = SM_EXAMPLES_DIR / "part-undeclared-via"
 EXTERNAL = SM_EXAMPLES_DIR / "part-external"
-FANIN = Path(__file__).resolve().parents[1] / ("rosetta/fixtures/part-fanin")
+FANIN = Path(__file__).resolve().parent / "fixtures" / "part-fanin"
 
 
 def test_build_part_system_composes_two_parts() -> None:

@@ -1,13 +1,38 @@
+import sys
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
 import syside
 from sismic.model import Statechart, Transition
+from sysmlc.sysml.loading import load_model
+from sysmlc.sysml.queries import iter_elements
 from sysmlc_models.sm_examples import (  # noqa: F401  (re-exported)
     SM_EXAMPLES,
     SM_EXAMPLES_BY_DIR,
     SmExample,
 )
 
-from sysmlc.sysml.loading import load_model
-from sysmlc.sysml.queries import iter_elements
+
+@pytest.fixture
+def fresh_external_modules() -> Iterator[None]:
+    """Isolate the ``--python`` module stems the runner tests use.
+
+    The external-backing tests import the same stems off ``sys.path``;
+    dropping the entries before and after each test keeps every test on
+    its own import path regardless of execution order.
+    """
+    for stem in ("ramp", "bump"):
+        sys.modules.pop(stem, None)
+    yield
+    for stem in ("ramp", "bump"):
+        sys.modules.pop(stem, None)
+
+
+@pytest.fixture(params=["'", '"'], ids=["single-quote", "double-quote"])
+def string_delimiter(request: pytest.FixtureRequest) -> Any:
+    return request.param
+
 
 QUAKE_PREAMBLE_IMPORTS = (
     "from math import cos as _cos, sin as _sin, tan as _tan",
