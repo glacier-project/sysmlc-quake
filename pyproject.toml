@@ -9,6 +9,10 @@ license = "BSD-2-Clause"
 dependencies = [
     "sysmlc",
     "sismic>=1.6.11,<2",
+    # Pinned to the certified release: the core declares a floor, so a
+    # fresh resolution would silently take a newer syside that rejects
+    # models the bundled corpora still use.
+    "syside==0.8.6",
 ]
 
 [project.optional-dependencies]

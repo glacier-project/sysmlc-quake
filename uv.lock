@@ -1227,14 +1227,17 @@ wheels = [
 
 [[package]]
 name = "syside"
-version = "0.10.3"
+version = "0.8.6"
 source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/63/bb054e655e7d573d62f48ad7ebdb82221eb6ee34abe943e702276c511697/syside-0.10.3-cp312-abi3-macosx_10_13_x86_64.whl", hash = "sha256:f29ca143bc1402026d310b21098cad821238d88416a5a8e313b61467b1f0e96e", size = 11370974, upload-time = "2026-07-20T13:17:13.867Z" },
-    { url = "https://files.pythonhosted.org/packages/ed/95/9d2b103fff96bbfb385593eea7b81000fc76838e63c79bf02d00681e0d46/syside-0.10.3-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:50a66f905bcde1e1fe997102973f031bc54f9469dfe77de09fb35435d697737f", size = 10289519, upload-time = "2026-07-20T13:17:09.774Z" },
-    { url = "https://files.pythonhosted.org/packages/43/eb/74ef3a31ca96807fa3f9f7ab568da05a8748ee10197feec88c10b2c5a603/syside-0.10.3-cp312-abi3-manylinux_2_31_x86_64.whl", hash = "sha256:1406e459fe1a461b2e4a76b48ac93d895b849e38df816d7a64c002b3dbb15332", size = 13285037, upload-time = "2026-07-20T13:17:15.961Z" },
-    { url = "https://files.pythonhosted.org/packages/a6/4d/c8904270f6f501494e287ec76bfe9bf40f809de1fed60346d609a4493ebd/syside-0.10.3-cp312-abi3-win_amd64.whl", hash = "sha256:4c55c7599cd89bb20f1153620098d01b5f5189005e1fde121da2aa63bf5dc4af", size = 11277549, upload-time = "2026-07-20T13:17:11.685Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/3e/7f79dd1b0909395451864b65b5c632a86c9d1ddd101fdb9e4db976e19c47/syside-0.10.3-cp312-abi3-win_arm64.whl", hash = "sha256:d974f3d59ad1f0a0b95b14712a8ce713f372264d63a9eeedb134bc3f74462ca7", size = 10502152, upload-time = "2026-07-20T13:17:07.567Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/85/4ed791e699464737cdb48ce11b44b48ab83a20a5b7882843fb3f9ba5acb1/syside-0.8.6-cp312-abi3-macosx_10_13_x86_64.whl", hash = "sha256:8577a27033ee4cbd3b7ff87639c66fad44207b6ee0f8ea7e0cdbaaa6db2301f3", size = 10461492, upload-time = "2026-03-09T11:36:48.25Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/86/8647bb4aa2abee13be3c27937dd8f643d6d9a8e3d892f7ba36d6b30edd66/syside-0.8.6-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:81141c4f09bea114384c215ac8a74ab97936f1e34b0d01a7349fab96fd6be5a8", size = 9399740, upload-time = "2026-03-09T11:36:43.541Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/b8/ac08b03d8e2d01f98aa5413d5b99d7b540d9232e378dee13e087c4ec8643/syside-0.8.6-cp312-abi3-manylinux_2_31_x86_64.whl", hash = "sha256:eac551c5fe800b9a6cee273a60d1d33c719ccfa0d2fb9449087834a632ae9a71", size = 12319291, upload-time = "2026-03-09T11:36:50.74Z" },
+    { url = "https://files.pythonhosted.org/packages/26/0e/24ee6af0d964503ee2e8f8f784d2f54677dccdd23e979b1a260420d309b6/syside-0.8.6-cp312-abi3-win_amd64.whl", hash = "sha256:c7eb5bcb10661e5b31b64f283e3b06c8bc9cf3853c45e2e0e4a73cc5bd453387", size = 10431751, upload-time = "2026-03-09T11:36:46.043Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/80/faa1f0eda52802a24e016495a4ffcf27d72ea4b5be48a9296ff7e1ac6680/syside-0.8.6-cp312-abi3-win_arm64.whl", hash = "sha256:44e961c0f56c943613e00d65aaa1f805593573821b41106edddd7a36666139f0", size = 9733000, upload-time = "2026-03-09T11:36:41.28Z" },
 ]
 
 [[package]]
@@ -1259,6 +1262,7 @@ version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "sismic" },
+    { name = "syside" },
     { name = "sysmlc" },
 ]
 
@@ -1302,6 +1306,7 @@ requires-dist = [
     { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2024.10.3,<2027" },
     { name = "sphinx-autodoc-typehints", marker = "extra == 'docs'", specifier = ">=2.2,<4" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5,<1" },
+    { name = "syside", specifier = "==0.8.6" },
     { name = "sysmlc", git = "https://github.com/glacier-project/sysmlc-core?branch=dev" },
     { name = "sysmlc-models", marker = "extra == 'dev'", git = "https://github.com/glacier-project/sysmlc-models?branch=dev" },
     { name = "tox", marker = "extra == 'dev'", specifier = ">=4.50.1,<5" },
