@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sismic.model import Statechart
-from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
-
 from sysmlc.backends import OutputOptions, discover_backends
-from sysmlc.backends.quake.backend import QuakeBackend
-from sysmlc.backends.quake.parts import QuakePartSystem
 from sysmlc.errors import SerializationError
 from sysmlc.sysml.loading import load_model
+from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
+
+from sysmlc_quake.backend import QuakeBackend
+from sysmlc_quake.parts import QuakePartSystem
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -140,6 +140,14 @@ def test_summary_reports_part_system(backend: QuakeBackend) -> None:
     assert "2 routes" in summary
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the pinned core still registers its own bundled quake entry point, "
+        "so discovery rejects the duplicate name; remove this marker in the "
+        "commit that bumps the lock to a core without the bundled backend"
+    ),
+)
 def test_quake_backend_is_discoverable() -> None:
     backends = discover_backends()
     assert "quake" in backends
