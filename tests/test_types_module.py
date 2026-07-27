@@ -63,6 +63,45 @@ package NestedTypes {
 }
 """
 
+COLLIDING_TYPES_MODEL = """
+package TypeCollision {
+    private import ScalarValues::*;
+
+    package Left {
+        attribute def Data {
+            attribute x : Real = 1.0;
+        }
+    }
+    package Right {
+        attribute def Data {
+            attribute label : String = "right";
+        }
+    }
+
+    state def Machine {
+        attribute left : Left::Data;
+        attribute right : Right::Data;
+        entry; then done;
+    }
+}
+"""
+
+COMPUTED_DEFAULT_MODEL = """
+package ComputedDefault {
+    private import ScalarValues::*;
+    private import TrigFunctions::*;
+
+    attribute def Data {
+        attribute x : Real = TrigFunctions::cos(0.0);
+    }
+
+    state def Machine {
+        attribute data : Data;
+        entry; then done;
+    }
+}
+"""
+
 EXTERNAL_MODEL = """
 package TypedRun {
     private import ScalarValues::*;
@@ -123,6 +162,7 @@ package TypedPart {
 @pytest.fixture(autouse=True)
 def clean_generated_modules() -> Iterator[None]:
     names = (
+        "ComputedDefault_Machine_types",
         "NestedTypes_Machine_types",
         "RuntimeConflict_types",
         "TypedPart_system_types",
@@ -217,6 +257,32 @@ def test_nested_composites_register_every_dataclass(tmp_path: Path) -> None:
     assert isinstance(box, generated.Box)
     assert isinstance(box.inner, generated.Inner)
     assert box.inner.z == 0.25
+
+
+def test_distinct_qualified_types_cannot_share_a_python_name(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, COLLIDING_TYPES_MODEL)
+
+    with pytest.raises(
+        UnsupportedConstructError,
+        match="two structured types share the simple name 'Data'",
+    ):
+        build_statechart_artifact(model, "TypeCollision::Machine")
+
+
+def test_computed_field_default_does_not_leak_into_companion_module(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, COMPUTED_DEFAULT_MODEL)
+
+    artifact = build_statechart_artifact(model, "ComputedDefault::Machine")
+
+    assert artifact.types_module is not None
+    assert "    x: float = None" in artifact.types_module.source
+    interpreter = Interpreter(artifact.statechart)
+    interpreter.execute()
+    assert interpreter.context["data"].x == 1.0
 
 
 def test_external_module_can_import_generated_type_at_top_level(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import logging
 from dataclasses import dataclass
 
@@ -481,10 +482,9 @@ class SismicBuilder:
                 f"structured type name {name!r} is not a Python identifier",
                 node=definition,
             )
-        if self._needs.has_dataclass(name):
-            return
-
         key = str(definition.qualified_name or name)
+        if self._needs.dataclass_is_registered(name, key):
+            return
         if key in self._registering_types:
             raise UnsupportedConstructError(
                 f"structured type {key!r} is recursive; generated Python "
@@ -520,15 +520,26 @@ class SismicBuilder:
                     default = "None"
                 else:
                     try:
-                        default = self._codegen.render_expression(
+                        rendered_default = self._codegen.render_expression(
                             default_expression
                         )
-                    except (ValueError, UnsupportedConstructError):
+                        literal = ast.literal_eval(rendered_default)
+                    except (
+                        SyntaxError,
+                        ValueError,
+                        UnsupportedConstructError,
+                    ):
                         default = "None"
+                    else:
+                        default = (
+                            rendered_default
+                            if isinstance(literal, (bool, int, float, str))
+                            else "None"
+                        )
                 lines.append(
                     f"    {field_name}: {py_type(attribute)} = {default}"
                 )
-            self._needs.register_dataclass(name, tuple(lines))
+            self._needs.register_dataclass(name, key, tuple(lines))
         finally:
             self._registering_types.remove(key)
 

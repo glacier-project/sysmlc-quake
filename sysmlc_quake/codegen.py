@@ -113,6 +113,7 @@ class QuakeRenderNeeds:
         self.undeliverable_sends: set[tuple[str, str]] = set()
         self.types_module: str | None = None
         self.dataclass_blocks: dict[str, tuple[str, ...]] = {}
+        self.dataclass_origins: dict[str, str] = {}
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -133,19 +134,41 @@ class QuakeRenderNeeds:
             for name in sorted(self.used_external)
         ]
 
-    def register_dataclass(self, name: str, lines: tuple[str, ...]) -> None:
+    def register_dataclass(
+        self, name: str, origin: str, lines: tuple[str, ...]
+    ) -> None:
         """Register one generated dataclass, rejecting name collisions."""
+        known_origin = self.dataclass_origins.get(name)
+        if known_origin is not None and known_origin != origin:
+            raise UnsupportedConstructError(
+                f"two structured types share the simple name {name!r}: "
+                f"{known_origin!r} and {origin!r}; rename one"
+            )
         known = self.dataclass_blocks.get(name)
         if known is not None and known != lines:
             raise UnsupportedConstructError(
-                f"two structured types share the simple name {name!r}; "
-                "rename one"
+                f"structured type {origin!r} produced conflicting "
+                "Python definitions"
             )
+        self.dataclass_origins[name] = origin
         self.dataclass_blocks[name] = lines
 
-    def has_dataclass(self, name: str) -> bool:
-        """Whether a dataclass named ``name`` is already registered."""
-        return name in self.dataclass_blocks
+    def dataclass_is_registered(self, name: str, origin: str) -> bool:
+        """Whether this exact structured definition is already registered.
+
+        Raises:
+            UnsupportedConstructError: If ``name`` belongs to a different
+                qualified structured definition.
+        """
+        known_origin = self.dataclass_origins.get(name)
+        if known_origin is None:
+            return False
+        if known_origin != origin:
+            raise UnsupportedConstructError(
+                f"two structured types share the simple name {name!r}: "
+                f"{known_origin!r} and {origin!r}; rename one"
+            )
+        return True
 
     def companion_module_lines(self) -> list[str]:
         """Render the generated companion module."""
