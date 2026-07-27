@@ -693,6 +693,17 @@ assignment simply rebinds the context name.
 > In SysML `pt2` *is* `origin`; in the emitted Python they are distinct
 > dataclass instances that merely start equal.
 
+> ⚠️ **Boundary:** the generated classes exist on the **construction side**
+> only. On the accept path, guards and effects receive sismic's `Event`
+> object: payload fields read structurally (`event.theta`), but the value
+> is **not an instance** of the generated dataclass, so
+> `isinstance(reading, AngleReading)` is false and
+> `dataclasses.replace(reading, ...)` fails under quake, while both work
+> under rosetta, which transports real instances over LF ports. External
+> Python called with an accepted payload must treat it structurally
+> (attribute access only, reconstruct via `type(x)(...)`), as the bundled
+> furuta physics module does.
+
 ______________________________________________________________________
 
 ### 2.3 enum literal → projected primitive value
