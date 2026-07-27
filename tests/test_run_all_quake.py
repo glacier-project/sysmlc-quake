@@ -75,3 +75,19 @@ def test_python_arguments_selects_shared_support(
         str(support),
     ]
     assert run_all_quake._python_arguments(reference) == []
+
+
+def test_expected_failure_targets_are_discoverable() -> None:
+    # Runs against the real bundled corpora on purpose: an entry whose
+    # model directory was renamed or moved would otherwise never be
+    # consulted by the sweep and rot silently.
+    labels = {
+        run_all_quake._model_name(directory)
+        for directory in run_all_quake._model_dirs(None)
+    }
+    for target in run_all_quake.EXPECTED_FAILURES:
+        model_label = target.split("::", maxsplit=1)[0]
+        assert model_label in labels, (
+            f"EXPECTED_FAILURES names {target!r}, but no swept model "
+            f"directory is labelled {model_label!r}"
+        )
