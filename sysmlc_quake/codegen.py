@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Final, override
+from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
 from sysmlc.codegen.python import (
@@ -10,8 +10,8 @@ from sysmlc.codegen.python import (
     PythonCodeGenContext,
     payload_signature,
 )
+from sysmlc.codegen.structured import DataclassRegistry
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.semantics.statemachine import attributes
 from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
     send_via_port,
@@ -70,32 +70,6 @@ ROUTER_CONTEXT_KEY = "_sysmlc_route"
 # coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
 
-_SCALAR_PY: Final[dict[str, str]] = {
-    "Real": "float",
-    "Rational": "float",
-    "Integer": "int",
-    "Natural": "int",
-    "Boolean": "bool",
-    "String": "str",
-}
-
-
-def py_type(attribute: syside.AttributeUsage) -> str:
-    """Map an attribute's declared SysML type to a Python annotation."""
-    if attributes.is_scalar_quantity(attribute):
-        return "float"
-    for definition in attribute.attribute_definitions.collect():
-        if definition.name in _SCALAR_PY:
-            return _SCALAR_PY[definition.name]
-        if (
-            isinstance(definition, syside.Definition)
-            and definition.owned_attributes.collect()
-        ):
-            if definition.name is None:
-                raise ValueError("structured attribute definition has no name")
-            return definition.name
-    return "object"
-
 
 class QuakeRenderNeeds:
     """Data the code generator fills and the builder reads back.
@@ -112,8 +86,7 @@ class QuakeRenderNeeds:
         self.used_external: set[str] = set()
         self.undeliverable_sends: set[tuple[str, str]] = set()
         self.types_module: str | None = None
-        self.dataclass_blocks: dict[str, tuple[str, ...]] = {}
-        self.dataclass_origins: dict[str, str] = {}
+        self.dataclasses = DataclassRegistry()
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -134,45 +107,9 @@ class QuakeRenderNeeds:
             for name in sorted(self.used_external)
         ]
 
-    def register_dataclass(
-        self, name: str, origin: str, lines: tuple[str, ...]
-    ) -> None:
-        """Register one generated dataclass, rejecting name collisions."""
-        known_origin = self.dataclass_origins.get(name)
-        if known_origin is not None and known_origin != origin:
-            raise UnsupportedConstructError(
-                f"two structured types share the simple name {name!r}: "
-                f"{known_origin!r} and {origin!r}; rename one"
-            )
-        known = self.dataclass_blocks.get(name)
-        if known is not None and known != lines:
-            raise UnsupportedConstructError(
-                f"structured type {origin!r} produced conflicting "
-                "Python definitions"
-            )
-        self.dataclass_origins[name] = origin
-        self.dataclass_blocks[name] = lines
-
-    def dataclass_is_registered(self, name: str, origin: str) -> bool:
-        """Whether this exact structured definition is already registered.
-
-        Raises:
-            UnsupportedConstructError: If ``name`` belongs to a different
-                qualified structured definition.
-        """
-        known_origin = self.dataclass_origins.get(name)
-        if known_origin is None:
-            return False
-        if known_origin != origin:
-            raise UnsupportedConstructError(
-                f"two structured types share the simple name {name!r}: "
-                f"{known_origin!r} and {origin!r}; rename one"
-            )
-        return True
-
     def companion_module_lines(self) -> list[str]:
         """Render the generated companion module."""
-        if not self.dataclass_blocks:
+        if not self.dataclasses:
             return []
         lines = [
             "from __future__ import annotations",
@@ -180,21 +117,18 @@ class QuakeRenderNeeds:
             "from dataclasses import dataclass",
             "",
         ]
-        for name in sorted(self.dataclass_blocks):
-            lines.extend(self.dataclass_blocks[name])
-            lines.append("")
-        lines.pop()
+        lines.extend(self.dataclasses.class_blocks())
         return lines
 
     def types_import_lines(self) -> list[str]:
         """Render the preamble import for generated structured types."""
-        if not self.dataclass_blocks:
+        if not self.dataclasses:
             return []
         if self.types_module is None:
             raise ValueError(
                 "types module name must be set before preamble assembly"
             )
-        names = ", ".join(sorted(self.dataclass_blocks))
+        names = ", ".join(self.dataclasses.names())
         return [f"from {self.types_module} import {names}"]
 
     def reset_call_tracking(self) -> None:

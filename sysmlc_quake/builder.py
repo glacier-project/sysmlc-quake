@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import logging
 from dataclasses import dataclass
 
@@ -14,8 +13,12 @@ from sismic.model import (
     Transition,
 )
 from sysmlc.codegen.python import join_statements
+from sysmlc.codegen.structured import (
+    constructed_payload_definition,
+    register_dataclass,
+)
 from sysmlc.errors import UnsupportedConstructError
-from sysmlc.semantics.statemachine import actions, attributes, transitions
+from sysmlc.semantics.statemachine import actions, transitions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
 from sysmlc.semantics.statemachine.facts import (
     AfterTrigger,
@@ -32,7 +35,6 @@ from sysmlc.semantics.statemachine.facts import (
     Trigger,
     WhenTrigger,
 )
-from sysmlc.sysml.queries import feature_value
 
 from sysmlc_quake.artifacts import (
     GeneratedPythonModule,
@@ -44,25 +46,9 @@ from sysmlc_quake.codegen import (
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
-    py_type,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _structured_definition(
-    attribute: syside.AttributeUsage,
-) -> syside.Definition | None:
-    """Return the structured definition typing ``attribute``, if any."""
-    if attributes.is_scalar_quantity(attribute):
-        return None
-    for definition in attribute.attribute_definitions.collect():
-        if (
-            isinstance(definition, syside.Definition)
-            and definition.owned_attributes.collect()
-        ):
-            return definition
-    return None
 
 
 @dataclass(frozen=True)
@@ -175,7 +161,6 @@ class SismicBuilder:
         self._arming_by_source: dict[str, list[str]] = {}
         self._completion_flag_by_scope: dict[str, str] = {}
         self._completion_flags_by_source: dict[str, str] = {}
-        self._registering_types: set[str] = set()
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -274,14 +259,13 @@ class SismicBuilder:
             for action in actions.inline_actions(slot):
                 if not isinstance(action, syside.SendActionUsage):
                     continue
-                payload = action.payload_argument
-                if not isinstance(payload, syside.ConstructorExpression):
-                    continue
-                definition = payload.instantiated_type
-                if (
-                    isinstance(definition, syside.Definition)
-                    and definition.owned_attributes.collect()
-                ):
+                # Empty payload types stay out of the companion: quake
+                # transports payloads by event name, so only types whose
+                # fields carry data need a class.
+                definition = constructed_payload_definition(
+                    action, include_empty=False
+                )
+                if definition is not None:
                     self._register_dataclass(definition)
 
     def _plan_triggers(self) -> None:
@@ -471,77 +455,12 @@ class SismicBuilder:
         return self._codegen.render_expression(value)
 
     def _register_dataclass(self, definition: syside.Definition) -> None:
-        """Register ``definition`` and any nested structured field types."""
-        name = definition.name
-        if name is None:
-            raise UnsupportedConstructError(
-                "structured type has no resolved name", node=definition
-            )
-        if not name.isidentifier():
-            raise UnsupportedConstructError(
-                f"structured type name {name!r} is not a Python identifier",
-                node=definition,
-            )
-        key = str(definition.qualified_name or name)
-        if self._needs.dataclass_is_registered(name, key):
-            return
-        if key in self._registering_types:
-            raise UnsupportedConstructError(
-                f"structured type {key!r} is recursive; generated Python "
-                "dataclasses do not support recursive SysML value types",
-                node=definition,
-            )
-        self._registering_types.add(key)
-        try:
-            attributes = definition.owned_attributes.collect()
-            for attribute in attributes:
-                nested = _structured_definition(attribute)
-                if nested is not None:
-                    self._register_dataclass(nested)
-
-            lines = ["@dataclass", f"class {name}:"]
-            if not attributes:
-                lines.append("    pass")
-            for attribute in attributes:
-                field_name = attribute.name
-                if field_name is None:
-                    raise UnsupportedConstructError(
-                        f"structured type {name!r} has an unnamed field",
-                        node=attribute,
-                    )
-                if not field_name.isidentifier():
-                    raise UnsupportedConstructError(
-                        f"structured field name {field_name!r} is not a "
-                        "Python identifier",
-                        node=attribute,
-                    )
-                default_expression = feature_value(attribute)
-                if default_expression is None:
-                    default = "None"
-                else:
-                    try:
-                        rendered_default = self._codegen.render_expression(
-                            default_expression
-                        )
-                        literal = ast.literal_eval(rendered_default)
-                    except (
-                        SyntaxError,
-                        ValueError,
-                        UnsupportedConstructError,
-                    ):
-                        default = "None"
-                    else:
-                        default = (
-                            rendered_default
-                            if isinstance(literal, (bool, int, float, str))
-                            else "None"
-                        )
-                lines.append(
-                    f"    {field_name}: {py_type(attribute)} = {default}"
-                )
-            self._needs.register_dataclass(name, key, tuple(lines))
-        finally:
-            self._registering_types.remove(key)
+        """Register ``definition`` on the shared dataclass registry."""
+        register_dataclass(
+            definition,
+            self._needs.dataclasses,
+            self._codegen.render_expression,
+        )
 
     def _emit_state(self, statechart: Statechart, state: StateFact) -> None:
         on_entry = self._on_entry(state)

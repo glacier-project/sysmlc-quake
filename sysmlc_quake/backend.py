@@ -54,6 +54,7 @@ class QuakeBackend(Backend):
         """Quake emits Python statechart guards backed by ``--python``."""
         return True
 
+    @override
     def defers_python_support_loading(self) -> bool:
         """Load support only after generated companion modules are installed."""
         return True
