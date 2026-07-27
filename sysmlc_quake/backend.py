@@ -15,6 +15,7 @@ from sysmlc_quake.parts import QuakePartSystem, build_part_system
 from sysmlc_quake.serialize import to_plantuml, to_yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     import syside
@@ -53,6 +54,10 @@ class QuakeBackend(Backend):
         """Quake emits Python statechart guards backed by ``--python``."""
         return True
 
+    def defers_python_support_loading(self) -> bool:
+        """Load support only after generated companion modules are installed."""
+        return True
+
     @override
     def build_part(
         self,
@@ -78,6 +83,7 @@ class QuakeBackend(Backend):
         max_steps: int = 1000,
         until: float | None = None,
         external: tuple[str, frozenset[str]] | None = None,
+        load_external: Callable[[], None] | None = None,
     ) -> runner.RunReport:
         """Execute a state definition to quiescence."""
         return runner.run_state_def(
@@ -86,6 +92,7 @@ class QuakeBackend(Backend):
             max_steps=max_steps,
             until=until,
             external=external,
+            load_external=load_external,
         )
 
     @override
@@ -97,6 +104,7 @@ class QuakeBackend(Backend):
         max_steps: int = 1000,
         until: float | None = None,
         external: tuple[str, frozenset[str]] | None = None,
+        load_external: Callable[[], None] | None = None,
     ) -> runner.RunReport:
         """Execute a connected part system to quiescence."""
         return runner.run_part_system(
@@ -105,6 +113,7 @@ class QuakeBackend(Backend):
             max_steps=max_steps,
             until=until,
             external=external,
+            load_external=load_external,
         )
 
     @override

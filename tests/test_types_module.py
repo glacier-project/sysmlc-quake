@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 from sismic.interpreter import Interpreter
 from sysmlc.backends import OutputOptions
+from sysmlc.cli import _load_external_module
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
@@ -127,6 +128,7 @@ def clean_generated_modules() -> Iterator[None]:
         "TypedPart_system_types",
         "TypedRun_Machine_types",
         "TypedState_Machine_types",
+        "typed_part_support",
         "typed_support",
     )
     for name in names:
@@ -243,6 +245,30 @@ def test_external_module_can_import_generated_type_at_top_level(
     assert support_module.Point is generated.Point
 
 
+def test_backend_defers_external_import_until_generated_types_exist(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, EXTERNAL_MODEL)
+    support = tmp_path / "typed_support.py"
+    support.write_text(
+        "from TypedRun_Machine_types import Point\n"
+        "\n"
+        "def shift(value):\n"
+        "    return Point(x=value.x + 1.0)\n"
+    )
+    backend = QuakeBackend()
+
+    report = backend.run_state_def(
+        model,
+        "TypedRun::Machine",
+        external=("typed_support", frozenset({"shift"})),
+        load_external=lambda: _load_external_module(support),
+    )
+
+    assert backend.defers_python_support_loading()
+    assert report.all_final
+
+
 def test_part_system_shares_one_generated_types_module(
     tmp_path: Path,
 ) -> None:
@@ -272,6 +298,32 @@ def test_part_system_shares_one_generated_types_module(
     assert "system/TypedPart_system_types.py" in {
         path.relative_to(tmp_path / "out").as_posix() for path in written
     }
+
+
+def test_part_runner_defers_external_import_until_types_exist(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, PART_MODEL)
+    support = tmp_path / "typed_part_support.py"
+    support.write_text(
+        "from TypedPart_system_types import Data\n"
+        "\n"
+        "def unused():\n"
+        "    return Data(value=0.0)\n"
+    )
+    backend = QuakeBackend()
+
+    report = backend.run_part_system(
+        model,
+        "TypedPart::system",
+        external=("typed_part_support", frozenset({"unused"})),
+        load_external=lambda: _load_external_module(support),
+    )
+
+    assert report.all_final
+    generated = sys.modules["TypedPart_system_types"]
+    support_module = sys.modules["typed_part_support"]
+    assert support_module.Data is generated.Data
 
 
 def test_scalar_statechart_has_no_generated_types_module() -> None:

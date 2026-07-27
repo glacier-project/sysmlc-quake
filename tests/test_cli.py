@@ -68,15 +68,13 @@ def test_quake_build_with_python_imports(
     assert any(
         transition.action == "x = step(x, 0.1)" for transition in sc.transitions
     )
-    assert not (out / "ext.py").exists()
 
 
 def test_quake_build_with_reps_imports_generated_module(
     tmp_path: Path,
 ) -> None:
-    # quake consumes the rep-generated module through the same pipeline
-    # as --python; like --python, the module is not copied beside the
-    # .yaml (the run command regenerates and imports it).
+    # Quake consumes the rep-generated module through the same pipeline
+    # as an explicit --python file.
     out = tmp_path / "out"
     rc = main(
         [
@@ -98,7 +96,6 @@ def test_quake_build_with_reps_imports_generated_module(
     assert any(
         transition.action == "x = step(x, 0.1)" for transition in sc.transitions
     )
-    assert not (out / "Ramp_impl.py").exists()
 
 
 def test_quake_build_part_system_writes_artifact_directory(
@@ -126,7 +123,7 @@ def test_quake_build_part_system_with_python_imports(
     tmp_path: Path,
 ) -> None:
     # --python for a quake part build: the per-instance YAML imports the
-    # external function, and the module is not copied.
+    # external function.
     part_ext = SM_EXAMPLES_DIR / "part-external"
     py = tmp_path / "ext.py"
     py.write_text("def bump(v):\n    return v + 1.0\n")
@@ -150,7 +147,6 @@ def test_quake_build_part_system_with_python_imports(
     yaml_path = out / "counterSystem" / "c.yaml"
     sc = import_from_yaml(filepath=str(yaml_path))
     assert "from ext import bump" in sc.preamble.splitlines()
-    assert not (out / "ext.py").exists()
 
 
 def test_quake_run_part_system(

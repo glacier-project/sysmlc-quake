@@ -20,7 +20,7 @@ from sysmlc_quake.coordinator import (
 from sysmlc_quake.parts import build_part_system
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     import syside
 
@@ -83,6 +83,7 @@ def run_state_def(
     max_steps: int = 1000,
     until: float | None = None,
     external: tuple[str, frozenset[str]] | None = None,
+    load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a single state definition to quiescence.
 
@@ -95,6 +96,8 @@ def run_state_def(
             ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        load_external: Callback that imports the external module after
+            generated companion modules have been installed.
 
     Returns:
         The run report (trace, final configuration, clock time, stop reason).
@@ -109,6 +112,8 @@ def run_state_def(
     name = state_def_qn.split("::")[-1]
     clock = SimulatedClock()
     statechart = build_statechart(model, state_def_qn, external=external)
+    if load_external is not None:
+        load_external()
     try:
         interpreters = {name: Interpreter(statechart, clock=clock)}
         trace, stop_reason = run_to_quiescence(
@@ -126,6 +131,7 @@ def run_part_system(
     max_steps: int = 1000,
     until: float | None = None,
     external: tuple[str, frozenset[str]] | None = None,
+    load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a connected part system to quiescence.
 
@@ -138,6 +144,8 @@ def run_part_system(
             ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        load_external: Callback that imports the external module after
+            generated companion modules have been installed.
 
     Returns:
         The run report (trace, final configurations, clock time, stop reason).
@@ -150,6 +158,8 @@ def run_part_system(
         ValueError: If ``max_steps`` is less than one.
     """
     system = build_part_system(model, usage_qn, external=external)
+    if load_external is not None:
+        load_external()
     try:
         coordinator = PartSystemCoordinator(system)
         trace, stop_reason = coordinator.run(max_steps=max_steps, until=until)
