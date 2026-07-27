@@ -147,6 +147,65 @@ def test_payload_guard_rejects_sent_value(model: syside.Model) -> None:
     assert "fired" not in interpreter.configuration
 
 
+def test_mixed_reads_of_same_event_all_emit_event_namespace(
+    model: syside.Model,
+) -> None:
+    """One event read by field, by chain, and wholly across transitions.
+
+    Sismic has no per-event read-shape restriction: the same Measurement
+    is read as ``event.value``, ``event.sample.value``, and bare ``event``
+    in three different transitions of one machine.
+    """
+    sc = build_statechart(model, "SM11::MachineReadablePayloadMixed")
+    assert transition_between(sc, "b", "c").action == "captured = event.value"
+    assert transition_between(sc, "c", "d").guard == "event.sample.value > 0.5"
+    assert (
+        transition_between(sc, "d", "a").action == "wholeCaptured = event"
+    )
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    # The single sent Measurement is consumed by the b -> c transition;
+    # the machine settles in c with the field value captured.
+    assert "c" in interpreter.configuration
+    assert interpreter.context["captured"] == 0.9
+
+
+def test_integer_payload_field_read_in_guard(model: syside.Model) -> None:
+    """An Integer payload field gates a transition at runtime."""
+    sc = build_statechart(model, "SM11::MachineReadableIntegerPayload")
+    transition = transition_between(sc, "armed", "fired")
+    assert transition.event == "Reading"
+    assert transition.guard == "event.value > 0"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+
+
+def test_boolean_payload_field_read_bare_in_guard(model: syside.Model) -> None:
+    """A Boolean payload field is read bare (no comparison) in a guard."""
+    sc = build_statechart(model, "SM11::MachineReadableBooleanPayload")
+    transition = transition_between(sc, "armed", "fired")
+    assert transition.event == "Flagged"
+    assert transition.guard == "event.armed"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+
+
+def test_mixed_primitive_payload_round_trips(model: syside.Model) -> None:
+    """A Boolean/Real/Boolean payload marshals every field and gates."""
+    sc = build_statechart(model, "SM11::MachineMixedPrimitivePadding")
+    assert (
+        transition_between(sc, "idle", "armed").action
+        == 'send("Mixed", armed=a, value=v, ready=r)'
+    )
+    transition = transition_between(sc, "armed", "fired")
+    assert transition.guard == "event.value > 1.0"
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "fired" in interpreter.configuration
+
+
 VIA_ALONE_MODEL = """
 package ViaAlone {
     item def Ping;
