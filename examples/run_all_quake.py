@@ -45,6 +45,7 @@ from pathlib import Path
 from sysmlc import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions, top_level_part_usages
+from sysmlc_models.catalog import model_dirs_under
 from sysmlc_models.showcase import SHOWCASE_DIR
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
@@ -140,9 +141,9 @@ def _model_dirs(only: list[str] | None) -> list[Path]:
     """
     dirs = sorted(
         {
-            source.parent
+            directory
             for corpus in CORPUS_DIRS.values()
-            for source in corpus.rglob("*.sysml")
+            for directory in model_dirs_under(corpus)
         }
     )
     if only is None:

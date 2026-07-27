@@ -11,10 +11,7 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
-from sysmlc_quake.artifacts import (
-    GeneratedPythonModule,
-    QuakeStatechartArtifact,
-)
+from sysmlc_quake.artifacts import QuakeStatechartArtifact
 from sysmlc_quake.backend import QuakeBackend
 from sysmlc_quake.builder import (
     build_statechart,
@@ -27,6 +24,8 @@ from tests import _load_inline_model
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+    import syside
 
 
 STRUCTURED_MODEL = """
@@ -159,12 +158,32 @@ package TypedPart {
 """
 
 
+@pytest.fixture(scope="module")
+def structured_model(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> syside.Model:
+    return _load_inline_model(
+        tmp_path_factory.mktemp("typed-state"), STRUCTURED_MODEL
+    )
+
+
+@pytest.fixture(scope="module")
+def external_model(tmp_path_factory: pytest.TempPathFactory) -> syside.Model:
+    return _load_inline_model(
+        tmp_path_factory.mktemp("typed-run"), EXTERNAL_MODEL
+    )
+
+
+@pytest.fixture(scope="module")
+def part_model(tmp_path_factory: pytest.TempPathFactory) -> syside.Model:
+    return _load_inline_model(tmp_path_factory.mktemp("typed-part"), PART_MODEL)
+
+
 @pytest.fixture(autouse=True)
 def clean_generated_modules() -> Iterator[None]:
     names = (
         "ComputedDefault_Machine_types",
         "NestedTypes_Machine_types",
-        "RuntimeConflict_types",
         "TypedPart_system_types",
         "TypedRun_Machine_types",
         "TypedState_Machine_types",
@@ -179,11 +198,11 @@ def clean_generated_modules() -> Iterator[None]:
 
 
 def test_statechart_artifact_owns_generated_types_module(
-    tmp_path: Path,
+    structured_model: syside.Model,
 ) -> None:
-    model = _load_inline_model(tmp_path, STRUCTURED_MODEL)
-
-    artifact = build_statechart_artifact(model, "TypedState::Machine")
+    artifact = build_statechart_artifact(
+        structured_model, "TypedState::Machine"
+    )
 
     assert isinstance(artifact, QuakeStatechartArtifact)
     assert artifact.types_module is not None
@@ -204,26 +223,28 @@ def test_statechart_artifact_owns_generated_types_module(
         'point = Point(x=1.0, label="origin")',
     ]
 
-    generated = sys.modules["TypedState_Machine_types"]
+    # Building the artifact renders the module without installing it; the
+    # executing consumer installs right before interpretation.
+    assert "TypedState_Machine_types" not in sys.modules
+    generated = artifact.types_module.install()
     interpreter = Interpreter(artifact.statechart)
     interpreter.execute()
     assert isinstance(interpreter.context["point"], generated.Point)
 
 
 def test_public_builder_keeps_returning_a_runnable_statechart(
-    tmp_path: Path,
+    structured_model: syside.Model,
 ) -> None:
-    model = _load_inline_model(tmp_path, STRUCTURED_MODEL)
-
-    statechart = build_statechart(model, "TypedState::Machine")
+    statechart = build_statechart(structured_model, "TypedState::Machine")
 
     Interpreter(statechart).execute()
 
 
-def test_backend_writes_companion_module(tmp_path: Path) -> None:
-    model = _load_inline_model(tmp_path, STRUCTURED_MODEL)
+def test_backend_writes_companion_module(
+    structured_model: syside.Model, tmp_path: Path
+) -> None:
     backend = QuakeBackend()
-    artifact = backend.build(model, "TypedState::Machine")
+    artifact = backend.build(structured_model, "TypedState::Machine")
     out = tmp_path / "out"
 
     written = backend.write(
@@ -239,6 +260,8 @@ def test_backend_writes_companion_module(tmp_path: Path) -> None:
     assert (
         out / "TypedState_Machine_types.py"
     ).read_text() == artifact.types_module.source
+    # A write-only build has no process-global side effect.
+    assert "TypedState_Machine_types" not in sys.modules
 
 
 def test_nested_composites_register_every_dataclass(tmp_path: Path) -> None:
@@ -250,10 +273,10 @@ def test_nested_composites_register_every_dataclass(tmp_path: Path) -> None:
     assert "class Box:" in artifact.types_module.source
     assert "    inner: Inner = None" in artifact.types_module.source
     assert "class Inner:" in artifact.types_module.source
+    generated = artifact.types_module.install()
     interpreter = Interpreter(artifact.statechart)
     interpreter.execute()
     box = interpreter.context["box"]
-    generated = sys.modules["NestedTypes_Machine_types"]
     assert isinstance(box, generated.Box)
     assert isinstance(box.inner, generated.Inner)
     assert box.inner.z == 0.25
@@ -280,15 +303,17 @@ def test_computed_field_default_does_not_leak_into_companion_module(
 
     assert artifact.types_module is not None
     assert "    x: float = None" in artifact.types_module.source
+    artifact.types_module.install()
     interpreter = Interpreter(artifact.statechart)
     interpreter.execute()
     assert interpreter.context["data"].x == 1.0
 
 
 def test_external_module_can_import_generated_type_at_top_level(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    external_model: syside.Model,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    model = _load_inline_model(tmp_path, EXTERNAL_MODEL)
     support = tmp_path / "typed_support.py"
     support.write_text(
         "from TypedRun_Machine_types import Point\n"
@@ -300,7 +325,7 @@ def test_external_module_can_import_generated_type_at_top_level(
     monkeypatch.syspath_prepend(str(tmp_path))
 
     report = run_state_def(
-        model,
+        external_model,
         "TypedRun::Machine",
         external=("typed_support", frozenset({"shift"})),
     )
@@ -312,9 +337,8 @@ def test_external_module_can_import_generated_type_at_top_level(
 
 
 def test_backend_defers_external_import_until_generated_types_exist(
-    tmp_path: Path,
+    external_model: syside.Model, tmp_path: Path
 ) -> None:
-    model = _load_inline_model(tmp_path, EXTERNAL_MODEL)
     support = tmp_path / "typed_support.py"
     support.write_text(
         "from TypedRun_Machine_types import Point\n"
@@ -325,7 +349,7 @@ def test_backend_defers_external_import_until_generated_types_exist(
     backend = QuakeBackend()
 
     report = backend.run_state_def(
-        model,
+        external_model,
         "TypedRun::Machine",
         external=("typed_support", frozenset({"shift"})),
         load_external=lambda: _load_external_module(support),
@@ -336,11 +360,9 @@ def test_backend_defers_external_import_until_generated_types_exist(
 
 
 def test_part_system_shares_one_generated_types_module(
-    tmp_path: Path,
+    part_model: syside.Model, tmp_path: Path
 ) -> None:
-    model = _load_inline_model(tmp_path, PART_MODEL)
-
-    system = build_part_system(model, "TypedPart::system")
+    system = build_part_system(part_model, "TypedPart::system")
 
     assert isinstance(system, QuakePartSystem)
     assert system.types_module is not None
@@ -364,12 +386,13 @@ def test_part_system_shares_one_generated_types_module(
     assert "system/TypedPart_system_types.py" in {
         path.relative_to(tmp_path / "out").as_posix() for path in written
     }
+    # A write-only part-system build has no process-global side effect.
+    assert "TypedPart_system_types" not in sys.modules
 
 
 def test_part_runner_defers_external_import_until_types_exist(
-    tmp_path: Path,
+    part_model: syside.Model, tmp_path: Path
 ) -> None:
-    model = _load_inline_model(tmp_path, PART_MODEL)
     support = tmp_path / "typed_part_support.py"
     support.write_text(
         "from TypedPart_system_types import Data\n"
@@ -380,7 +403,7 @@ def test_part_runner_defers_external_import_until_types_exist(
     backend = QuakeBackend()
 
     report = backend.run_part_system(
-        model,
+        part_model,
         "TypedPart::system",
         external=("typed_part_support", frozenset({"unused"})),
         load_external=lambda: _load_external_module(support),
@@ -400,22 +423,3 @@ def test_scalar_statechart_has_no_generated_types_module() -> None:
 
     assert isinstance(artifact, QuakeStatechartArtifact)
     assert artifact.types_module is None
-
-
-def test_generated_module_install_is_idempotent_but_rejects_collision() -> None:
-    original = GeneratedPythonModule(
-        name="RuntimeConflict_types",
-        lines=("value = 1",),
-    )
-    same = GeneratedPythonModule(
-        name="RuntimeConflict_types",
-        lines=("value = 1",),
-    )
-    conflicting = GeneratedPythonModule(
-        name="RuntimeConflict_types",
-        lines=("value = 2",),
-    )
-
-    assert original.install() is same.install()
-    with pytest.raises(UnsupportedConstructError, match="different content"):
-        conflicting.install()

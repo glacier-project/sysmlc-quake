@@ -10,7 +10,7 @@ from sysmlc.codegen.python import (
     PythonCodeGenContext,
     payload_signature,
 )
-from sysmlc.codegen.structured import DataclassRegistry
+from sysmlc.codegen.structured import DataclassRegistry, types_import_lines
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
@@ -80,13 +80,28 @@ class QuakeRenderNeeds:
     emitted, and the ``via`` sends dropped for lack of a system context.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        types_module: str | None = None,
+        dataclasses: DataclassRegistry | None = None,
+    ) -> None:
+        """Initialize the registry.
+
+        Args:
+            types_module: The generated companion module's name, when the
+                build wants one.
+            dataclasses: A dataclass registry shared with other machines
+                of the same build, or None for a fresh one.
+        """
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
         self.used_external: set[str] = set()
         self.undeliverable_sends: set[tuple[str, str]] = set()
-        self.types_module: str | None = None
-        self.dataclasses = DataclassRegistry()
+        self.types_module = types_module
+        self.dataclasses = (
+            dataclasses if dataclasses is not None else DataclassRegistry()
+        )
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -107,34 +122,9 @@ class QuakeRenderNeeds:
             for name in sorted(self.used_external)
         ]
 
-    def companion_module_lines(self) -> list[str]:
-        """Render the generated companion module."""
-        if not self.dataclasses:
-            return []
-        lines = [
-            "from __future__ import annotations",
-            "",
-            "from dataclasses import dataclass",
-            "",
-        ]
-        lines.extend(self.dataclasses.class_blocks())
-        return lines
-
     def types_import_lines(self) -> list[str]:
         """Render the preamble import for generated structured types."""
-        if not self.dataclasses:
-            return []
-        if self.types_module is None:
-            raise ValueError(
-                "types module name must be set before preamble assembly"
-            )
-        names = ", ".join(self.dataclasses.names())
-        return [f"from {self.types_module} import {names}"]
-
-    def reset_call_tracking(self) -> None:
-        """Reset per-statechart call facts while retaining shared types."""
-        self.used_external.clear()
-        self.undeliverable_sends.clear()
+        return types_import_lines(self.types_module, self.dataclasses.names())
 
 
 def _enumeration_is_structured(

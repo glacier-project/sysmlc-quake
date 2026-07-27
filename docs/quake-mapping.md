@@ -667,11 +667,13 @@ class Inner:
 
 `QuakeBackend.build` returns a `QuakeStatechartArtifact` carrying both the
 sismic statechart and this optional module. `QuakeBackend.write` writes the
-module beside the YAML/PlantUML artifact. The convenience
-`build_statechart(...)` API still returns a plain, runnable `Statechart`; it
-installs the generated module in `sys.modules` for in-process execution.
-Part-system builds collect the types needed by all machines into one shared
-module named after the top-level part usage.
+module beside the YAML/PlantUML artifact; artifact builds only render the
+module, so a write-only build never touches `sys.modules`. Installation
+happens at the execution boundary: the convenience `build_statechart(...)`
+API still returns a plain, runnable `Statechart` and installs the module,
+and the runner installs a part system's module before its coordinator
+starts. Part-system builds collect the types needed by all machines into
+one shared module named after the top-level part usage.
 
 *Why:* an emitted chain like `box.inner.z` needs real Python objects with
 stable, named types. Dataclasses provide the dotted access while also giving

@@ -243,9 +243,12 @@ def test_route_delivers_payload_named_like_router_params(
     # The Data payload attribute is named "signal", clashing with the
     # router closure's own first parameter name.
     model = _load_inline_model(tmp_path, PAYLOAD_COLLISION_MODEL)
-    coordinator = PartSystemCoordinator(
-        build_part_system(model, "PartPayload::sys")
-    )
+    system = build_part_system(model, "PartPayload::sys")
+    # Interpreting directly (no runner) makes this test the executing
+    # consumer, so it installs the generated types module itself.
+    assert system.types_module is not None
+    system.types_module.install()
+    coordinator = PartSystemCoordinator(system)
 
     trace, stop_reason = coordinator.run(max_steps=20)
 

@@ -158,6 +158,11 @@ def run_part_system(
         ValueError: If ``max_steps`` is less than one.
     """
     system = build_part_system(model, usage_qn, external=external)
+    # Execution is what needs the generated types importable: install
+    # before the external module loads (it may import them at top level)
+    # and before any interpreter executes a preamble.
+    if system.types_module is not None:
+        system.types_module.install()
     if load_external is not None:
         load_external()
     try:
