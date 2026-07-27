@@ -94,7 +94,7 @@ def test_function_constraint_uses_math_alias_and_is_enforced(
     sc = build_statechart(model, "SM17::MachineFunctionViolation")
 
     lines = sc.preamble.splitlines()
-    assert lines[:2] == list(QUAKE_PREAMBLE_IMPORTS)
+    assert lines[: len(QUAKE_PREAMBLE_IMPORTS)] == list(QUAKE_PREAMBLE_IMPORTS)
     assert sc.state_for("MachineFunctionViolation").invariants == [
         "_cos(x) <= 0.0"
     ]

@@ -9,7 +9,8 @@ from sysmlc.backends.base import Backend, OutputOptions
 from sysmlc.errors import SerializationError, UnsupportedConstructError
 
 from sysmlc_quake import runner
-from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.artifacts import QuakeStatechartArtifact
+from sysmlc_quake.builder import build_statechart_artifact
 from sysmlc_quake.parts import QuakePartSystem, build_part_system
 from sysmlc_quake.serialize import to_plantuml, to_yaml
 
@@ -43,9 +44,9 @@ class QuakeBackend(Backend):
         element_qn: str,
         *,
         external: tuple[str, frozenset[str]] | None = None,
-    ) -> object:
+    ) -> QuakeStatechartArtifact:
         """Build the Sismic statechart for the given state definition."""
-        return build_statechart(model, element_qn, external=external)
+        return build_statechart_artifact(model, element_qn, external=external)
 
     @override
     def consumes_python_support(self) -> bool:
@@ -109,12 +110,13 @@ class QuakeBackend(Backend):
     @override
     def serialize(self, artifact: object, fmt: str) -> str:
         """Serialize the Sismic statechart to the requested format."""
-        if not isinstance(artifact, Statechart):
+        statechart = _as_statechart(artifact)
+        if statechart is None:
             raise SerializationError("expected a sismic Statechart artifact")
         if fmt == "yaml":
-            return to_yaml(artifact)
+            return to_yaml(statechart)
         if fmt == "plantuml":
-            return to_plantuml(artifact)
+            return to_plantuml(statechart)
         raise SerializationError(f"unsupported format: {fmt!r}")
 
     @override
@@ -127,12 +129,13 @@ class QuakeBackend(Backend):
         """
         if isinstance(artifact, QuakePartSystem):
             return self._write_part_system(artifact, options)
-        if not isinstance(artifact, Statechart):
+        statechart = _as_statechart(artifact)
+        if statechart is None:
             raise SerializationError(
-                "expected a sismic Statechart or QuakePartSystem artifact"
+                "expected a quake statechart or part-system artifact"
             )
         formats = options.formats or tuple(self.formats())
-        basename = options.basename or artifact.name
+        basename = options.basename or statechart.name
         options.output_dir.mkdir(parents=True, exist_ok=True)
         written: list[Path] = []
         for fmt in formats:
@@ -140,6 +143,11 @@ class QuakeBackend(Backend):
             path = options.output_dir / f"{basename}.{self._EXTENSIONS[fmt]}"
             path.write_text(text)
             written.append(path)
+        if (
+            isinstance(artifact, QuakeStatechartArtifact)
+            and artifact.types_module is not None
+        ):
+            written.append(artifact.types_module.write(options.output_dir))
         return written
 
     def _write_part_system(
@@ -155,6 +163,8 @@ class QuakeBackend(Backend):
             json.dumps(_part_system_manifest(artifact), indent=2) + "\n"
         )
         written = [manifest]
+        if artifact.types_module is not None:
+            written.append(artifact.types_module.write(system_dir))
         for node in artifact.graph.parts:
             statechart = artifact.statecharts[node.usage_name]
             for fmt in formats:
@@ -172,12 +182,13 @@ class QuakeBackend(Backend):
                 f"{len(artifact.graph.parts)} parts, "
                 f"{len(artifact.routes)} routes"
             )
-        if not isinstance(artifact, Statechart):
+        statechart = _as_statechart(artifact)
+        if statechart is None:
             return self.name
-        states = len(artifact.states)
-        transitions = len(artifact.transitions)
+        states = len(statechart.states)
+        transitions = len(statechart.transitions)
         return (
-            f"statechart {artifact.name!r}: "
+            f"statechart {statechart.name!r}: "
             f"{states} states, {transitions} transitions"
         )
 
@@ -196,3 +207,12 @@ def _part_system_manifest(artifact: QuakePartSystem) -> dict[str, object]:
         ],
         "routes": [asdict(route) for route in artifact.routes],
     }
+
+
+def _as_statechart(artifact: object) -> Statechart | None:
+    """Return the statechart carried by a supported single-machine artifact."""
+    if isinstance(artifact, QuakeStatechartArtifact):
+        return artifact.statechart
+    if isinstance(artifact, Statechart):
+        return artifact
+    return None

@@ -9,7 +9,9 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
 from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
 
-from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.artifacts import GeneratedPythonModule, types_module_name
+from sysmlc_quake.builder import _build_statechart, finalize_types_module
+from sysmlc_quake.codegen import QuakeRenderNeeds
 
 if TYPE_CHECKING:
     import syside
@@ -30,6 +32,7 @@ class QuakePartSystem:
     graph: PartGraph
     statecharts: dict[str, Statechart]
     routes: tuple[PortSignalRoute, ...]
+    types_module: GeneratedPythonModule | None = None
 
 
 def build_part_system(
@@ -75,15 +78,23 @@ def build_part_system(
                 "exactly one exhibit per part"
             )
 
-    _faces, routes = validated_routes(model, graph, graph.parts)
+    _, routes = validated_routes(model, graph, graph.parts)
 
+    needs = QuakeRenderNeeds()
+    needs.types_module = types_module_name(usage_qn)
+    if external is not None:
+        needs.register_external(module=external[0], names=external[1])
     built_behaviors: dict[str, Statechart] = {}
     statecharts: dict[str, Statechart] = {}
     for node in graph.parts:
         behavior_qn = node.behaviors[0][1]
         if behavior_qn not in built_behaviors:
-            built_behaviors[behavior_qn] = build_statechart(
-                model, behavior_qn, external=external, part_system_mode=True
+            needs.reset_call_tracking()
+            built_behaviors[behavior_qn] = _build_statechart(
+                model,
+                behavior_qn,
+                needs=needs,
+                part_system_mode=True,
             )
         statecharts[node.usage_name] = built_behaviors[behavior_qn]
 
@@ -92,4 +103,5 @@ def build_part_system(
         graph=graph,
         statecharts=statecharts,
         routes=routes,
+        types_module=finalize_types_module(needs),
     )

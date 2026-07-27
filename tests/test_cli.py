@@ -30,7 +30,7 @@ def test_rig_on_backend_without_composition_errors(
     assert "cannot build a rig composition" in capsys.readouterr().err
 
 
-def test_quake_build_with_python_imports_without_copying(
+def test_quake_build_with_python_imports(
     tmp_path: Path,
 ) -> None:
     model = SM_EXAMPLES_DIR / "sm15-external"
@@ -60,14 +60,14 @@ def test_quake_build_with_python_imports_without_copying(
 
     assert rc == 0
     yaml_path = out / "Ramp.yaml"
-    yaml = yaml_path.read_text()
     sc = import_from_yaml(filepath=str(yaml_path))
-    assert sc.preamble.splitlines()[:3] == [
+    assert sc.preamble.splitlines()[:2] == [
         "from math import cos as _cos, sin as _sin, tan as _tan",
-        "from types import SimpleNamespace",
         "from ext import step",
     ]
-    assert "x = step(x, 0.1)" in yaml
+    assert any(
+        transition.action == "x = step(x, 0.1)" for transition in sc.transitions
+    )
     assert not (out / "ext.py").exists()
 
 
@@ -92,9 +92,12 @@ def test_quake_build_with_reps_imports_generated_module(
         ]
     )
     assert rc == 0
-    yaml = (out / "Ramp.yaml").read_text()
-    assert "from Ramp_impl import step" in yaml
-    assert "x = step(x, 0.1)" in yaml
+    yaml_path = out / "Ramp.yaml"
+    sc = import_from_yaml(filepath=str(yaml_path))
+    assert "from Ramp_impl import step" in sc.preamble.splitlines()
+    assert any(
+        transition.action == "x = step(x, 0.1)" for transition in sc.transitions
+    )
     assert not (out / "Ramp_impl.py").exists()
 
 
@@ -119,7 +122,7 @@ def test_quake_build_part_system_writes_artifact_directory(
     assert (out / "pingSystem" / "tb.yaml").exists()
 
 
-def test_quake_build_part_system_with_python_imports_without_copying(
+def test_quake_build_part_system_with_python_imports(
     tmp_path: Path,
 ) -> None:
     # --python for a quake part build: the per-instance YAML imports the
@@ -144,8 +147,9 @@ def test_quake_build_part_system_with_python_imports_without_copying(
 
     assert rc == 0
     assert (out / "counterSystem" / "routing.json").exists()
-    yaml = (out / "counterSystem" / "c.yaml").read_text()
-    assert "from ext import bump" in yaml
+    yaml_path = out / "counterSystem" / "c.yaml"
+    sc = import_from_yaml(filepath=str(yaml_path))
+    assert "from ext import bump" in sc.preamble.splitlines()
     assert not (out / "ext.py").exists()
 
 
