@@ -1,12 +1,27 @@
-# sysmlc-quake
+# 🌋 sysmlc-quake
 
 The **quake** backend for [sysmlc](https://github.com/glacier-project/sysmlc-core):
 it compiles SysML v2 state machines into executable
 [sismic](https://github.com/AlexandreDecan/sismic) statecharts, and serializes
 them to YAML and PlantUML.
 
-`docs/quake-mapping.md` is the canonical, construct-by-construct record of the
-SysML-to-sismic mapping and of the boundaries of what this backend supports.
+**Status:** in progress.
+
+## Overview
+
+Quake turns the paradigm-neutral facts produced by the core's state-machine
+driver into a `sismic.model.Statechart`: states, transitions, guards,
+attribute initializers and action bodies become the statechart's preamble,
+`on_entry`/`on_exit` blocks and transition actions. The result is executable
+by a sismic `Interpreter`.
+
+For connected multi-machine systems it also supplies a coordinator that runs
+one interpreter per part on a shared logical clock, routing signals between
+ports.
+
+[`docs/quake-mapping.md`](docs/quake-mapping.md) is the canonical,
+construct-by-construct record of the SysML-to-sismic mapping and of the
+boundaries of what this backend supports.
 
 ## Prerequisites
 
@@ -30,13 +45,25 @@ tests and examples use.
 
 ## Usage
 
-Installing this package beside the core registers the backend through the
-`sysmlc.backends` entry-point group, which makes it available on the shared
-CLI. Model arguments accept either a path to a model directory or the name of
-a bundled corpus model:
+Installed beside the core, the backend registers itself on the shared CLI.
+Model arguments take either a path or a bundled corpus name:
 
 ```bash
 uv run sysmlc quake build sm-examples/sm01-helloworld -o out/
+```
+
+Two output formats are available, and both are written unless `-f` selects
+one:
+
+| Format     | Contents                          |
+| ---------- | --------------------------------- |
+| `yaml`     | YAML-serialized sismic statechart |
+| `plantuml` | PlantUML statechart diagram       |
+
+Execute a model to quiescence without writing artifacts:
+
+```bash
+uv run sysmlc quake run sm-examples/sm01-helloworld -e SM01::Machine
 ```
 
 Build and execute a statechart from one of the bundled state-machine examples
@@ -59,6 +86,19 @@ statechart = build_statechart(model, "SM01::Machine")
 
 `examples/run_all_quake.py` sweeps the bundled showcase and sm-examples
 corpora through the CLI and reports a per-model verdict.
+
+## Layout
+
+```
+sysmlc_quake/
+├── backend.py       # QuakeBackend: the sysmlc plugin entry point
+├── builder.py       # SismicBuilder: neutral facts -> Statechart
+├── codegen.py       # SismicCodeGen: expressions -> Python source
+├── parts.py         # multi-machine part systems
+├── coordinator.py   # shared-clock interpreter orchestration
+├── runner.py        # execution to quiescence
+└── serialize.py     # YAML and PlantUML output
+```
 
 ## Development
 
