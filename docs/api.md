@@ -18,6 +18,7 @@ API reference to render. -->
 ## Statechart construction
 
 ```{eval-rst}
+.. automodule:: sysmlc_quake.artifacts
 .. automodule:: sysmlc_quake.builder
 .. automodule:: sysmlc_quake.codegen
 ```

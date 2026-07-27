@@ -92,6 +92,7 @@ corpora through the CLI and reports a per-model verdict.
 ```
 sysmlc_quake/
 ├── backend.py       # QuakeBackend: the sysmlc plugin entry point
+├── artifacts.py     # statecharts plus generated Python companion modules
 ├── builder.py       # SismicBuilder: neutral facts -> Statechart
 ├── codegen.py       # SismicCodeGen: expressions -> Python source
 ├── parts.py         # multi-machine part systems
