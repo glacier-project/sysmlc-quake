@@ -16,11 +16,12 @@ from sysmlc_models.sm_examples import (  # noqa: F401  (re-exported)
 
 @pytest.fixture
 def fresh_external_modules() -> Iterator[None]:
-    """Isolate the ``--python`` module stems the runner tests use.
+    """Isolate the ``--python`` module stems the runner and CLI tests use.
 
-    The external-backing tests import the same stems off ``sys.path``;
-    dropping the entries before and after each test keeps every test on
-    its own import path regardless of execution order.
+    Several external-backing tests import the same stems from different
+    files. Dropping those entries from ``sys.modules`` before and after
+    each test stops one test's cached module from satisfying another
+    test's import, regardless of execution order.
     """
     for stem in ("ramp", "bump"):
         sys.modules.pop(stem, None)
