@@ -10,7 +10,7 @@ from sismic.exceptions import SismicError
 from sismic.interpreter import Interpreter
 from sysmlc.errors import ExecutionError
 
-from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.builder import build_statechart_artifact
 from sysmlc_quake.coordinator import (
     CoordinatedStep,
     PartSystemCoordinator,
@@ -111,11 +111,16 @@ def run_state_def(
     """
     name = state_def_qn.split("::")[-1]
     clock = SimulatedClock()
-    statechart = build_statechart(model, state_def_qn, external=external)
+    artifact = build_statechart_artifact(model, state_def_qn, external=external)
+    # Execution is what needs the generated types importable: install
+    # before the external module loads (it may import them at top level)
+    # and before the interpreter executes the preamble.
+    if artifact.types_module is not None:
+        artifact.types_module.install()
     if load_external is not None:
         load_external()
     try:
-        interpreters = {name: Interpreter(statechart, clock=clock)}
+        interpreters = {name: Interpreter(artifact.statechart, clock=clock)}
         trace, stop_reason = run_to_quiescence(
             interpreters, clock, max_steps=max_steps, until=until
         )
