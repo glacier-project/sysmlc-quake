@@ -37,7 +37,6 @@ def string_delimiter(request: pytest.FixtureRequest) -> Any:
 
 QUAKE_PREAMBLE_IMPORTS = (
     "from math import cos as _cos, sin as _sin, tan as _tan",
-    "from types import SimpleNamespace",
 )
 
 

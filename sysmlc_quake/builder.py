@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
+import syside
 from sismic.model import (
     BasicState,
     CompoundState,
@@ -13,6 +13,12 @@ from sismic.model import (
     Transition,
 )
 from sysmlc.codegen.python import join_statements
+from sysmlc.codegen.structured import (
+    GeneratedPythonModule,
+    constructed_payload_definition,
+    register_dataclass,
+    types_module_name,
+)
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine import actions, transitions
 from sysmlc.semantics.statemachine.driver import StateMachineDriver
@@ -32,15 +38,13 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 
+from sysmlc_quake.artifacts import QuakeStatechartArtifact
 from sysmlc_quake.codegen import (
     TICK_METADATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
 )
-
-if TYPE_CHECKING:
-    import syside
 
 logger = logging.getLogger(__name__)
 
@@ -120,15 +124,16 @@ class SismicBuilder:
         self,
         name: str,
         *,
-        external: tuple[str, frozenset[str]] | None = None,
+        needs: QuakeRenderNeeds,
         part_system_mode: bool = False,
     ) -> None:
         """Initialize the builder.
 
         Args:
             name: The sismic statechart name (the state definition's name).
-            external: Optional ``(module_stem, function_names)`` pair for
-                external calc-def backing.
+            needs: The render-needs registry shared with the code
+                generator; the caller configures external backing and the
+                dataclass registry on it before building.
             part_system_mode: True when the machine is built inside a part
                 system, where ``send ... via <port>`` renders as a call to
                 the injected router; false for a standalone statechart,
@@ -136,9 +141,7 @@ class SismicBuilder:
         """
         self._name = name
         self._part_system_mode = part_system_mode
-        self._needs = QuakeRenderNeeds()
-        if external is not None:
-            self._needs.register_external(module=external[0], names=external[1])
+        self._needs = needs
         self._codegen = SismicCodeGen(
             needs=self._needs, part_system_mode=part_system_mode
         )
@@ -194,6 +197,7 @@ class SismicBuilder:
 
     def result(self) -> Statechart:
         """Build, validate, and return the assembled sismic statechart."""
+        self._collect_sends()
         self._plan_triggers()
         self._plan_completions()
         if self._needs.external_module is not None:
@@ -234,9 +238,35 @@ class SismicBuilder:
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
         lines = math_import_lines()
-        lines.append("from types import SimpleNamespace")
+        lines.extend(self._needs.types_import_lines())
         lines.extend(self._needs.external_import_lines())
         return lines
+
+    def _collect_sends(self) -> None:
+        """Register every structured payload type constructed by a send."""
+        slots: list[syside.ActionUsage | None] = []
+        for state in self._state_facts:
+            slots.extend(state.executable_actions())
+        slots.extend(transition.effect for transition in self._transition_facts)
+        # Repeated sends construct the same type; resolve each definition
+        # once, keyed by its qualified name.
+        seen: set[str] = set()
+        for slot in slots:
+            for action in actions.inline_actions(slot):
+                if not isinstance(action, syside.SendActionUsage):
+                    continue
+                definition = constructed_payload_definition(action)
+                if definition is None:
+                    continue
+                key = str(definition.qualified_name or definition.name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                # Empty payload types stay out of the companion: quake
+                # transports payloads by event name, so only types whose
+                # fields carry data need a class.
+                if definition.owned_attributes.collect():
+                    self._register_dataclass(definition)
 
     def _plan_triggers(self) -> None:
         """Plan the emitted machinery for time and change triggers.
@@ -414,14 +444,23 @@ class SismicBuilder:
         if value is None:
             return None
         if isinstance(value, CompositeValue):
+            self._register_dataclass(value.definition)
             fields = ", ".join(
                 f"{name}={self._render_value(field)}"
                 for name, field in value.fields
             )
-            return f"SimpleNamespace({fields})"
+            return f"{value.type_name}({fields})"
         if isinstance(value, float):
             return repr(value)
         return self._codegen.render_expression(value)
+
+    def _register_dataclass(self, definition: syside.Definition) -> None:
+        """Register ``definition`` on the shared dataclass registry."""
+        register_dataclass(
+            definition,
+            self._needs.dataclasses,
+            self._codegen.render_expression,
+        )
 
     def _emit_state(self, statechart: Statechart, state: StateFact) -> None:
         on_entry = self._on_entry(state)
@@ -645,6 +684,52 @@ class SismicBuilder:
         return final_name
 
 
+def build_statechart_with_needs(
+    model: syside.Model,
+    state_def_qn: str,
+    *,
+    needs: QuakeRenderNeeds,
+    part_system_mode: bool = False,
+) -> Statechart:
+    """Build one statechart using the supplied render-needs registry."""
+    name = state_def_qn.split("::")[-1]
+    return StateMachineDriver(model).run(
+        state_def_qn,
+        SismicBuilder(
+            name,
+            needs=needs,
+            part_system_mode=part_system_mode,
+        ),
+    )
+
+
+def build_statechart_artifact(
+    model: syside.Model,
+    state_def_qn: str,
+    *,
+    external: tuple[str, frozenset[str]] | None = None,
+    part_system_mode: bool = False,
+) -> QuakeStatechartArtifact:
+    """Build a statechart together with its generated support module."""
+    module_name = types_module_name(state_def_qn)
+    needs = QuakeRenderNeeds(types_module=module_name, external=external)
+    statechart = build_statechart_with_needs(
+        model,
+        state_def_qn,
+        needs=needs,
+        part_system_mode=part_system_mode,
+    )
+    # The module is only rendered here, not installed: executing consumers
+    # install right before execution, so a write-only build has no
+    # process-global side effect.
+    return QuakeStatechartArtifact(
+        statechart=statechart,
+        types_module=GeneratedPythonModule.from_registry(
+            module_name, needs.dataclasses
+        ),
+    )
+
+
 def build_statechart(
     model: syside.Model,
     state_def_qn: str,
@@ -652,7 +737,7 @@ def build_statechart(
     external: tuple[str, frozenset[str]] | None = None,
     part_system_mode: bool = False,
 ) -> Statechart:
-    """Build a sismic Statechart from a SysML state definition.
+    """Build a runnable sismic Statechart from a SysML state definition.
 
     Wires the generic :class:`StateMachineDriver` to a :class:`SismicBuilder`.
 
@@ -669,10 +754,15 @@ def build_statechart(
     Returns:
         A sismic ``Statechart`` ready to feed into ``Interpreter``.
     """
-    name = state_def_qn.split("::")[-1]
-    return StateMachineDriver(model).run(
+    artifact = build_statechart_artifact(
+        model,
         state_def_qn,
-        SismicBuilder(
-            name, external=external, part_system_mode=part_system_mode
-        ),
+        external=external,
+        part_system_mode=part_system_mode,
     )
+    # "Ready for Interpreter" includes the preamble's generated-types
+    # import resolving, so this convenience wrapper installs the module;
+    # artifact-returning builds leave installation to the runner.
+    if artifact.types_module is not None:
+        artifact.types_module.install()
+    return artifact.statechart

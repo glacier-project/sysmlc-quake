@@ -4,12 +4,12 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from sismic.model import Statechart
 from sysmlc.backends import OutputOptions, discover_backends
 from sysmlc.errors import SerializationError
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
+from sysmlc_quake.artifacts import QuakeStatechartArtifact
 from sysmlc_quake.backend import QuakeBackend
 from sysmlc_quake.parts import QuakePartSystem
 
@@ -34,37 +34,45 @@ def model() -> syside.Model:
 
 
 @pytest.fixture(scope="module")
-def artifact(backend: QuakeBackend, model: syside.Model) -> Statechart:
+def artifact(
+    backend: QuakeBackend, model: syside.Model
+) -> QuakeStatechartArtifact:
     result = backend.build(model, MACHINE_QN)
-    assert isinstance(result, Statechart)
+    assert isinstance(result, QuakeStatechartArtifact)
     return result
 
 
-def test_build_returns_named_statechart(artifact: Statechart) -> None:
-    assert artifact.name == "Machine"
+def test_build_returns_named_statechart(
+    artifact: QuakeStatechartArtifact,
+) -> None:
+    assert artifact.statechart.name == "Machine"
 
 
-def test_serialize_yaml(backend: QuakeBackend, artifact: Statechart) -> None:
+def test_serialize_yaml(
+    backend: QuakeBackend, artifact: QuakeStatechartArtifact
+) -> None:
     text = backend.serialize(artifact, "yaml")
     assert "statechart:" in text
     assert "idle" in text
 
 
 def test_serialize_plantuml(
-    backend: QuakeBackend, artifact: Statechart
+    backend: QuakeBackend, artifact: QuakeStatechartArtifact
 ) -> None:
     assert "@startuml" in backend.serialize(artifact, "plantuml")
 
 
 def test_serialize_rejects_unknown_format(
-    backend: QuakeBackend, artifact: Statechart
+    backend: QuakeBackend, artifact: QuakeStatechartArtifact
 ) -> None:
     with pytest.raises(SerializationError):
         backend.serialize(artifact, "json")
 
 
 def test_write_defaults_to_all_formats_creating_output_dir(
-    backend: QuakeBackend, artifact: Statechart, tmp_path: Path
+    backend: QuakeBackend,
+    artifact: QuakeStatechartArtifact,
+    tmp_path: Path,
 ) -> None:
     nested = tmp_path / "a" / "b"
     written = backend.write(artifact, OutputOptions(output_dir=nested))
@@ -74,7 +82,9 @@ def test_write_defaults_to_all_formats_creating_output_dir(
 
 
 def test_write_single_format_with_basename_override(
-    backend: QuakeBackend, artifact: Statechart, tmp_path: Path
+    backend: QuakeBackend,
+    artifact: QuakeStatechartArtifact,
+    tmp_path: Path,
 ) -> None:
     written = backend.write(
         artifact,
@@ -124,7 +134,7 @@ def test_write_part_system_emits_manifest_and_instance_statecharts(
 
 
 def test_summary_reports_counts(
-    backend: QuakeBackend, artifact: Statechart
+    backend: QuakeBackend, artifact: QuakeStatechartArtifact
 ) -> None:
     summary = backend.summary(artifact)
     assert "Machine" in summary

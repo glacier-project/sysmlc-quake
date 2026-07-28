@@ -20,15 +20,17 @@ Pipeline (per model folder):
    --until <T> --max-steps <N>`` executes to the time bound.
 
 A folder that ships exactly one ``*.py`` file has it forwarded as
-``--python`` to both verbs (external calc-def backing). Both stages
-always run: a build failure never hides the run verdict. Targets listed
-in ``EXPECTED_FAILURES`` (rejection fixtures and known gaps) must fail
-at each recorded stage; the sweep stays green there and prints the
-reason, while a recorded stage that passes turns the sweep red so the
-table cannot go stale.
+``--python`` to both verbs (external calc-def backing). Curated shared
+support files are forwarded explicitly; models without either use their
+textual representations. Both stages always run: a build failure never
+hides the run verdict. Targets listed in ``EXPECTED_FAILURES`` (rejection
+fixtures and known gaps) must fail at each recorded stage; the sweep
+stays green there and prints the reason, while a recorded stage that
+passes turns the sweep red so the table cannot go stale.
 
 Usage:
-    python examples/run_all_quake.py [--only thermostat sm03-guard]
+    python examples/run_all_quake.py
+        [--only furuta-pendulum/deterministic sm03-guard]
         [--until 2.0] [--max-steps 5000]
 """
 
@@ -43,12 +45,18 @@ from pathlib import Path
 from sysmlc import configure_logging
 from sysmlc.sysml.loading import load_model
 from sysmlc.sysml.queries import state_definitions, top_level_part_usages
+from sysmlc_models.catalog import model_dirs_under
 from sysmlc_models.showcase import SHOWCASE_DIR
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
 CORPUS_DIRS = (SHOWCASE_DIR, SM_EXAMPLES_DIR)
 BUILD_ROOT = EXAMPLES_DIR / "build"
+SHARED_PYTHON_SUPPORT = {
+    "showcase/furuta-pendulum/deterministic": (
+        SHOWCASE_DIR / "furuta-pendulum" / "furuta_physics.py"
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -68,13 +76,11 @@ class ExpectedFailure:
 
 # Keyed by target label: <corpus>/<model folder>::<element leaf name>.
 EXPECTED_FAILURES: dict[str, ExpectedFailure] = {
-    "showcase/furuta-pendulum::furutaSystem": ExpectedFailure(
+    "showcase/furuta-pendulum/nondeterministic::furutaSystem": ExpectedFailure(
         stages=("run",),
         reason=(
-            "the physics module imports a generated types module that "
-            "quake does not emit, and the shared model is deliberately "
-            "nondeterministic; the deterministic variant lives in "
-            "sm-examples/furuta-pendulum"
+            "the reference model deliberately has overlapping same-source "
+            "transitions; use the deterministic sibling for Quake execution"
         ),
     ),
     "sm-examples/part-zero-exhibit::sys": ExpectedFailure(
@@ -119,8 +125,10 @@ def _model_dirs(only: list[str] | None) -> list[Path]:
     """Return the model folders to sweep, sorted per corpus.
 
     Args:
-        only: Folder names (``thermostat``) or corpus-qualified names
-            (``showcase/furuta-pendulum``) to restrict the sweep to.
+        only: Folder names (``thermostat``), corpus-relative names
+            (``furuta-pendulum/deterministic``), or corpus-qualified names
+            (``showcase/furuta-pendulum/deterministic``) to restrict the
+            sweep to.
 
     Returns:
         Model directories containing at least one ``*.sysml`` file.
@@ -128,25 +136,48 @@ def _model_dirs(only: list[str] | None) -> list[Path]:
     Raises:
         SystemExit: If *only* names a folder that does not exist.
     """
-    dirs = [
+    dirs = sorted(
         directory
         for corpus in CORPUS_DIRS
-        for directory in sorted(corpus.iterdir())
-        if directory.is_dir() and any(directory.glob("*.sysml"))
-    ]
+        for directory in model_dirs_under(corpus)
+    )
     if only is None:
         return dirs
     chosen = []
     matched = set()
     for directory in dirs:
-        relative = f"{directory.parent.name}/{directory.name}"
-        if directory.name in only or relative in only:
+        qualified = _model_name(directory)
+        relative = qualified.split("/", maxsplit=1)[1]
+        aliases = {directory.name, relative, qualified}
+        if aliases.intersection(only):
             chosen.append(directory)
-            matched.update({directory.name, relative})
+            matched.update(aliases)
     missing = set(only) - matched
     if missing:
         sys.exit(f"unknown model(s): {', '.join(sorted(missing))}")
     return chosen
+
+
+def _model_name(model_dir: Path) -> str:
+    """Return the corpus-qualified path of *model_dir*.
+
+    Args:
+        model_dir: A model directory below one of :data:`CORPUS_DIRS`.
+
+    Returns:
+        A stable label such as
+        ``"showcase/furuta-pendulum/deterministic"``.
+
+    Raises:
+        ValueError: If *model_dir* is outside the configured corpora.
+    """
+    for corpus_dir in CORPUS_DIRS:
+        try:
+            relative = model_dir.relative_to(corpus_dir)
+        except ValueError:
+            continue
+        return f"{corpus_dir.name}/{relative.as_posix()}"
+    raise ValueError(f"model directory is outside the corpora: {model_dir}")
 
 
 def _targets(model_dir: Path) -> list[str]:
@@ -174,18 +205,21 @@ def _targets(model_dir: Path) -> list[str]:
 
 
 def _python_arguments(model_dir: Path) -> list[str]:
-    """Return ``--python <file>`` when *model_dir* ships exactly one.
+    """Return the external Python support arguments for *model_dir*.
 
     Args:
         model_dir: Directory containing the SysML model.
 
     Returns:
-        The CLI arguments forwarding the folder's single Python file,
-        or an empty list.
+        The CLI arguments forwarding the folder's single Python file or
+        its curated shared support file, or an empty list.
     """
     py_files = sorted(model_dir.glob("*.py"))
     if len(py_files) == 1:
         return ["--python", str(py_files[0])]
+    shared = SHARED_PYTHON_SUPPORT.get(_model_name(model_dir))
+    if shared is not None:
+        return ["--python", str(shared)]
     return []
 
 
@@ -269,7 +303,7 @@ def _sweep_target(
     Returns:
         One :class:`Result` per stage, build first.
     """
-    relative = f"{model_dir.parent.name}/{model_dir.name}"
+    relative = _model_name(model_dir)
     label = f"{relative}::{element_qn.split('::')[-1]}"
     expected = EXPECTED_FAILURES.get(label)
     python_arguments = _python_arguments(model_dir)
@@ -327,8 +361,9 @@ def main() -> int:
         metavar="MODEL",
         help=(
             "sweep a subset (folder names, e.g. thermostat sm03-guard; "
-            "corpus-qualified names like showcase/furuta-pendulum "
-            "disambiguate)"
+            "nested names like furuta-pendulum/deterministic; "
+            "corpus-qualified names like "
+            "showcase/furuta-pendulum/deterministic disambiguate)"
         ),
     )
     parser.add_argument(
@@ -349,7 +384,7 @@ def main() -> int:
 
     results: list[Result] = []
     for model_dir in _model_dirs(args.only):
-        relative = f"{model_dir.parent.name}/{model_dir.name}"
+        relative = _model_name(model_dir)
         try:
             element_qns = _targets(model_dir)
         except ValueError as error:

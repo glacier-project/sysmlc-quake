@@ -5,11 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from sysmlc.codegen.structured import (
+    DataclassRegistry,
+    GeneratedPythonModule,
+    types_module_name,
+)
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
 from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
 
-from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.builder import build_statechart_with_needs
+from sysmlc_quake.codegen import QuakeRenderNeeds
 
 if TYPE_CHECKING:
     import syside
@@ -30,6 +36,7 @@ class QuakePartSystem:
     graph: PartGraph
     statecharts: dict[str, Statechart]
     routes: tuple[PortSignalRoute, ...]
+    types_module: GeneratedPythonModule | None = None
 
 
 def build_part_system(
@@ -75,15 +82,27 @@ def build_part_system(
                 "exactly one exhibit per part"
             )
 
-    _faces, routes = validated_routes(model, graph, graph.parts)
+    _, routes = validated_routes(model, graph, graph.parts)
 
+    module_name = types_module_name(usage_qn)
+    shared_types = DataclassRegistry()
     built_behaviors: dict[str, Statechart] = {}
     statecharts: dict[str, Statechart] = {}
     for node in graph.parts:
         behavior_qn = node.behaviors[0][1]
         if behavior_qn not in built_behaviors:
-            built_behaviors[behavior_qn] = build_statechart(
-                model, behavior_qn, external=external, part_system_mode=True
+            # Each machine gets fresh per-build needs; only the dataclass
+            # registry and the companion name are shared across machines.
+            needs = QuakeRenderNeeds(
+                types_module=module_name,
+                dataclasses=shared_types,
+                external=external,
+            )
+            built_behaviors[behavior_qn] = build_statechart_with_needs(
+                model,
+                behavior_qn,
+                needs=needs,
+                part_system_mode=True,
             )
         statecharts[node.usage_name] = built_behaviors[behavior_qn]
 
@@ -92,4 +111,7 @@ def build_part_system(
         graph=graph,
         statecharts=statecharts,
         routes=routes,
+        types_module=GeneratedPythonModule.from_registry(
+            module_name, shared_types
+        ),
     )

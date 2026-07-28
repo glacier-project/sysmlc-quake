@@ -10,7 +10,7 @@ from sismic.exceptions import SismicError
 from sismic.interpreter import Interpreter
 from sysmlc.errors import ExecutionError
 
-from sysmlc_quake.builder import build_statechart
+from sysmlc_quake.builder import build_statechart_artifact
 from sysmlc_quake.coordinator import (
     CoordinatedStep,
     PartSystemCoordinator,
@@ -20,7 +20,7 @@ from sysmlc_quake.coordinator import (
 from sysmlc_quake.parts import build_part_system
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     import syside
 
@@ -83,6 +83,7 @@ def run_state_def(
     max_steps: int = 1000,
     until: float | None = None,
     external: tuple[str, frozenset[str]] | None = None,
+    load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a single state definition to quiescence.
 
@@ -95,6 +96,8 @@ def run_state_def(
             ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        load_external: Callback that imports the external module after
+            generated companion modules have been installed.
 
     Returns:
         The run report (trace, final configuration, clock time, stop reason).
@@ -108,9 +111,16 @@ def run_state_def(
     """
     name = state_def_qn.split("::")[-1]
     clock = SimulatedClock()
-    statechart = build_statechart(model, state_def_qn, external=external)
+    artifact = build_statechart_artifact(model, state_def_qn, external=external)
+    # Execution is what needs the generated types importable: install
+    # before the external module loads (it may import them at top level)
+    # and before the interpreter executes the preamble.
+    if artifact.types_module is not None:
+        artifact.types_module.install()
+    if load_external is not None:
+        load_external()
     try:
-        interpreters = {name: Interpreter(statechart, clock=clock)}
+        interpreters = {name: Interpreter(artifact.statechart, clock=clock)}
         trace, stop_reason = run_to_quiescence(
             interpreters, clock, max_steps=max_steps, until=until
         )
@@ -126,6 +136,7 @@ def run_part_system(
     max_steps: int = 1000,
     until: float | None = None,
     external: tuple[str, frozenset[str]] | None = None,
+    load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a connected part system to quiescence.
 
@@ -138,6 +149,8 @@ def run_part_system(
             ``None`` runs to quiescence.
         external: Optional ``(module_stem, function_names)`` pair for
             external calc-def backing.
+        load_external: Callback that imports the external module after
+            generated companion modules have been installed.
 
     Returns:
         The run report (trace, final configurations, clock time, stop reason).
@@ -150,6 +163,13 @@ def run_part_system(
         ValueError: If ``max_steps`` is less than one.
     """
     system = build_part_system(model, usage_qn, external=external)
+    # Execution is what needs the generated types importable: install
+    # before the external module loads (it may import them at top level)
+    # and before any interpreter executes a preamble.
+    if system.types_module is not None:
+        system.types_module.install()
+    if load_external is not None:
+        load_external()
     try:
         coordinator = PartSystemCoordinator(system)
         trace, stop_reason = coordinator.run(max_steps=max_steps, until=until)

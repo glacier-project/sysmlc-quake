@@ -20,7 +20,7 @@ Limitation callout. **Not yet**: not implemented.
 | `parallel` → orthogonal state                                        | **Done**        |                                                                                                                                            |
 | `then done` → final state                                            | **Done**        |                                                                                                                                            |
 | attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                                      |
-| composite attribute → namespace                                      | Done, to refine | usage-site redefinitions and bindings ignored                                                                                              |
+| composite attribute → generated dataclass                            | Done, to refine | whole-value bindings are reconstructed from the type's fields                                                                              |
 | bare `transition first A then B`                                     | **Done**        |                                                                                                                                            |
 | transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
@@ -35,7 +35,7 @@ Limitation callout. **Not yet**: not implemented.
 | transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                                          |
 | `send` → `send(...)`                                                 | **Done**        | `to <own port>` raises an internal event; a standalone `via` send is dropped with a warning (no connection); other `to` receivers rejected |
 | library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                                             |
-| external `calc def` calls via `--python`                             | **Done**        | state definitions and part systems, on build and run; imports are serialized in the sismic preamble, the Python module is not copied       |
+| external `calc def` calls via `--python`                             | **Done**        | state definitions and part systems, on build and run; build copies the Python module beside each generated artifact group                  |
 | enum literals → projected primitive values                           | **Done**        | a valued literal emits its declared value, a plain literal its name as a string; structured enumerations rejected                          |
 | referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows                             |
 | `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                                                   |
@@ -573,7 +573,7 @@ preamble: pickDuration = 120.0
 > update `x`, where SysML keeps the equation alive. This flattening will need
 > refining if models start relying on those guarantees.
 
-### 2.2 composite attribute → `SimpleNamespace` tree
+### 2.2 composite attribute → generated dataclass
 
 *Corpus: `sm05-chained-references`*
 
@@ -598,14 +598,18 @@ write). Statically, though, a usage may **redefine** a field's value
 usage before the run; only `default` values may be overridden, a bound `=`
 field cannot.
 
-**The generator** binds the attribute in the `preamble` to a `SimpleNamespace`
-tree mirroring its def: one keyword per field, valued from the **definition's**
-field values, recursively. A nested def becomes a nested namespace; a quantity
-field collapses to its SI base value (`attribute t : DurationValue = 2 [min];`
-gives `t=120.0`). When at least one composite is bound, the import line
-`from types import SimpleNamespace` is prepended to the `preamble`. Feature
-chains in guards and actions are emitted unchanged and resolve
-against the bound object.
+**The generator** emits a named Python `@dataclass` for every structured type
+that the statechart actually needs: a bound composite attribute or a
+constructed signal payload. Nested definitions are registered recursively.
+The classes live in one companion module named from the selected element's
+full qualified name, sanitized for Python and suffixed with `_types`; for this
+example it is `SM05_MachineChainNested_types.py`.
+
+The statechart preamble imports the generated classes and constructs the
+attribute recursively with keyword arguments. A quantity field collapses to
+its SI base value (`attribute t : DurationValue = 2 [min];` gives `t=120.0`).
+Feature chains in guards and actions are emitted unchanged and resolve against
+the dataclass instance.
 
 ```sysml
 attribute def Inner {
@@ -629,7 +633,10 @@ state def MachineChainNested {
 ```yaml
 statechart:
   name: MachineChainNested
-  preamble: "from types import SimpleNamespace\nbox = SimpleNamespace(inner=SimpleNamespace(z=0.25))"
+  preamble: |
+    from math import cos as _cos, sin as _sin, tan as _tan
+    from SM05_MachineChainNested_types import Box, Inner
+    box = Box(inner=Inner(z=0.25))
   root state:
     initial: idle
     name: MachineChainNested
@@ -640,27 +647,66 @@ statechart:
     - {name: running}
 ```
 
-*Why:* an emitted chain like `box.inner.z` only evaluates if `box` is a real
-Python object with an `inner` attribute; a `SimpleNamespace` provides exactly
-that dotted access. Building it **once, at preamble time,** is enough because
-the model itself guarantees the built tree never mutates: its fields cannot be
-written (above), and a whole-attribute reassignment only rebinds the name to
-another tree, which is exactly what the emitted Python does (`assign box := spare` becomes `box = spare`).
+The companion module contains stable, importable types:
 
-> ⚠️ **Boundary:** a field with **no value** anywhere in the def tree is
-> **rejected** fail-loud (`Composite attribute field 'y' has no value to bind; give it a default.`). A scalar attribute with no value just stays unbound
-> (Section 2.1), but a composite must be **constructed**, and a namespace
-> cannot carry a hole.
+```python
+from __future__ import annotations
 
-> ⚠️ **Limitation:** the namespace is built from the definition's field values
-> **alone**; any value given at the **usage site** is silently ignored. Both
-> forms: a body redefinition (`attribute pt : Point { :>> x = 1.0; }`, legal
-> over a `default` field) still emits the def's `x=0.5`, so a guard tuned by
-> the redefinition misfires (a machine that should reach `running` stays in
-> `idle`); and a whole-value binding (`attribute pt2 : Point = origin;`) emits
-> a fresh namespace built from the defaults instead of the binding (in SysML
-> `pt2` *is* `origin`; in the emitted Python they are two distinct objects that
-> merely start equal).
+from dataclasses import dataclass
+
+
+@dataclass
+class Box:
+    inner: Inner = None
+
+
+@dataclass
+class Inner:
+    z: float = 0.25
+```
+
+`QuakeBackend.build` returns a `QuakeStatechartArtifact` carrying both the
+sismic statechart and this optional module. `QuakeBackend.write` writes the
+module beside the YAML/PlantUML artifact; artifact builds only render the
+module, so a write-only build never touches `sys.modules`. Installation
+happens at the execution boundary: the convenience `build_statechart(...)`
+API still returns a plain, runnable `Statechart` and installs the module,
+and the runner installs a part system's module before its coordinator
+starts. Part-system builds collect the types needed by all machines into
+one shared module named after the top-level part usage.
+
+*Why:* an emitted chain like `box.inner.z` needs real Python objects with
+stable, named types. Dataclasses provide the dotted access while also giving
+external Python and textual representations a class they can import. Building
+the value **once, at preamble time,** is enough because the model itself
+guarantees the built tree's fields cannot be written; a whole-attribute
+assignment simply rebinds the context name.
+
+> ⚠️ **Boundary:** when a structured type initializes a composite context
+> attribute, a field with **no value** anywhere in the def tree is **rejected**
+> fail-loud (`Composite attribute field 'y' has no value to bind; give it a default.`). A scalar context attribute with no value just stays unbound
+> (Section 2.1), while signal dataclass fields may default to `None`.
+> Recursive structured types and two different types sharing one simple Python
+> class name are also rejected explicitly.
+
+> ⚠️ **Limitation:** a usage-local field redefinition is applied to the
+> constructed value, but a whole-value binding
+> (`attribute pt2 : Point = origin;`) is still reconstructed field by field.
+> In SysML `pt2` *is* `origin`; in the emitted Python they are distinct
+> dataclass instances that merely start equal.
+
+> ⚠️ **Boundary:** the generated classes exist on the **construction side**
+> only. On the accept path, guards and effects receive sismic's `Event`
+> object: payload fields read structurally (`event.theta`), but the value
+> is **not an instance** of the generated dataclass, so
+> `isinstance(reading, AngleReading)` is false and
+> `dataclasses.replace(reading, ...)` fails under quake, while both work
+> under rosetta, which transports real instances over LF ports. External
+> Python called with an accepted payload must treat it structurally
+> (attribute access only). Reconstruction via `type(x)(...)` is appropriate
+> only for construction-side generated dataclasses, such as the
+> `PendulumState` passed to the bundled furuta physics module's `step`
+> function; it is not valid for an accepted sismic `Event`.
 
 ______________________________________________________________________
 
@@ -705,8 +751,7 @@ state def MachineStringEnum {
 ```yaml
 statechart:
   name: MachineStringEnum
-  preamble: "from math import cos as _cos, sin as _sin, tan as _tan\nfrom types import
-    SimpleNamespace\nc = \"red\""
+  preamble: "from math import cos as _cos, sin as _sin, tan as _tan\nc = \"red\""
   root state:
     initial: idle
     name: MachineStringEnum
@@ -1727,6 +1772,7 @@ statechart preamble imports and uses that function:
 
 ```yaml
 preamble: |
+  from math import cos as _cos, sin as _sin, tan as _tan
   from ramp import step
   x = 0.0
   _n_run = 0
@@ -1734,12 +1780,25 @@ preamble: |
 action: x = step(x, 0.1)
 ```
 
-Quake does **not** copy the Python module beside the YAML. The generated
-statechart is not a self-contained Python program; whichever harness executes
-it must make the module importable. `sysmlc quake run --python <file>` does
-this for you (the CLI imports the file under its stem before executing); API
-callers must make the module importable themselves, for example by adding the
-file's parent directory to `sys.path`.
+On `build`, the CLI copies the supplied module beside each generated artifact
+group, once per output directory. A state-definition build therefore writes
+`Ramp.yaml` and `ramp.py` together; a part-system build places the module in
+the system directory beside its routing manifest and per-instance
+statecharts. Python textual representations materialized from `rep` bodies
+follow the same path.
+
+If the model needs structured data, Quake also writes its generated
+`*_types.py` companion there. This lets the support module import a generated
+class directly. During `run`, Quake first builds and installs the companion,
+then asks the core CLI to import the support module, and only then creates the
+sismic interpreter. A top-level import such as
+`from SM15_Ramp_types import Point` is therefore safe.
+
+API callers may pass a loader callback through `QuakeBackend.run_state_def`
+or `run_part_system`. When calling `build_statechart`/the runner directly,
+they can instead make the support module importable (for example by adding its
+parent directory to `sys.path`); the generated companion is installed before
+sismic evaluates the preamble.
 
 > ⚠️ **Boundary:** a `calc def` whose simple name is absent from the supplied
 > `--python` module fails loud, naming both the function and the module. Without
@@ -1892,8 +1951,7 @@ injected router instead of a self-`send`:
 ```yaml
 statechart:
   name: PlantBehavior
-  preamble: "from math import cos as _cos, sin as _sin, tan as _tan\nfrom types import
-    SimpleNamespace"
+  preamble: "from math import cos as _cos, sin as _sin, tan as _tan"
   root state:
     initial: idle
     name: PlantBehavior
@@ -1948,8 +2006,8 @@ configuration), **quiescent** (no machine can move and no event is pending),
 clock is left at `T`), or **hit step cap** (`--max-steps`, default 1000; the
 trace is kept and the exit code is 1). `--until` is how a deliberately
 non-terminating closed-loop model is bounded. `--python <file>` composes with
-`run` for both element kinds; the CLI imports the module before executing
-(Section 4.6).
+`run` for both element kinds; Quake prepares generated companion types before
+the CLI imports the module and starts execution (Section 4.6).
 
 > ⚠️ **Boundary:** a part system requires uniquely named part usages and
 > exactly one exhibited state per part def; multi-exhibit parts (and the rig

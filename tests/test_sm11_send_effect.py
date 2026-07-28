@@ -159,9 +159,7 @@ def test_mixed_reads_of_same_event_all_emit_event_namespace(
     sc = build_statechart(model, "SM11::MachineReadablePayloadMixed")
     assert transition_between(sc, "b", "c").action == "captured = event.value"
     assert transition_between(sc, "c", "d").guard == "event.sample.value > 0.5"
-    assert (
-        transition_between(sc, "d", "a").action == "wholeCaptured = event"
-    )
+    assert transition_between(sc, "d", "a").action == "wholeCaptured = event"
     interpreter = Interpreter(sc)
     interpreter.execute()
     # The single sent Measurement is consumed by the b -> c transition;

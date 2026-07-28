@@ -10,6 +10,7 @@ from sysmlc.codegen.python import (
     PythonCodeGenContext,
     payload_signature,
 )
+from sysmlc.codegen.structured import DataclassRegistry, types_import_lines
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
@@ -79,11 +80,33 @@ class QuakeRenderNeeds:
     emitted, and the ``via`` sends dropped for lack of a system context.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        types_module: str | None = None,
+        dataclasses: DataclassRegistry | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
+    ) -> None:
+        """Initialize the registry.
+
+        Args:
+            types_module: The generated companion module's name, when the
+                build wants one.
+            dataclasses: A dataclass registry shared with other machines
+                of the same build, or None for a fresh one.
+            external: Optional ``(module_stem, function_names)`` pair for
+                external calc-def backing, registered on construction.
+        """
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
         self.used_external: set[str] = set()
         self.undeliverable_sends: set[tuple[str, str]] = set()
+        self.types_module = types_module
+        self.dataclasses = (
+            dataclasses if dataclasses is not None else DataclassRegistry()
+        )
+        if external is not None:
+            self.register_external(module=external[0], names=external[1])
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""
@@ -103,6 +126,10 @@ class QuakeRenderNeeds:
             f"from {self.external_module} import {name}"
             for name in sorted(self.used_external)
         ]
+
+    def types_import_lines(self) -> list[str]:
+        """Render the preamble import for generated structured types."""
+        return types_import_lines(self.types_module, self.dataclasses.names())
 
 
 def _enumeration_is_structured(
