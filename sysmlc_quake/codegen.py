@@ -85,6 +85,7 @@ class QuakeRenderNeeds:
         *,
         types_module: str | None = None,
         dataclasses: DataclassRegistry | None = None,
+        external: tuple[str, frozenset[str]] | None = None,
     ) -> None:
         """Initialize the registry.
 
@@ -93,6 +94,8 @@ class QuakeRenderNeeds:
                 build wants one.
             dataclasses: A dataclass registry shared with other machines
                 of the same build, or None for a fresh one.
+            external: Optional ``(module_stem, function_names)`` pair for
+                external calc-def backing, registered on construction.
         """
         self.external_module: str | None = None
         self.external_names: frozenset[str] = frozenset()
@@ -102,6 +105,8 @@ class QuakeRenderNeeds:
         self.dataclasses = (
             dataclasses if dataclasses is not None else DataclassRegistry()
         )
+        if external is not None:
+            self.register_external(module=external[0], names=external[1])
 
     def register_external(self, *, module: str, names: frozenset[str]) -> None:
         """Record the --python module and the function names it provides."""

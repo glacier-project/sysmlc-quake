@@ -14,10 +14,7 @@ from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
 from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
 
-from sysmlc_quake.builder import (
-    build_statechart_with_needs,
-    finalize_types_module,
-)
+from sysmlc_quake.builder import build_statechart_with_needs
 from sysmlc_quake.codegen import QuakeRenderNeeds
 
 if TYPE_CHECKING:
@@ -97,10 +94,10 @@ def build_part_system(
             # Each machine gets fresh per-build needs; only the dataclass
             # registry and the companion name are shared across machines.
             needs = QuakeRenderNeeds(
-                types_module=module_name, dataclasses=shared_types
+                types_module=module_name,
+                dataclasses=shared_types,
+                external=external,
             )
-            if external is not None:
-                needs.register_external(module=external[0], names=external[1])
             built_behaviors[behavior_qn] = build_statechart_with_needs(
                 model,
                 behavior_qn,
@@ -114,5 +111,7 @@ def build_part_system(
         graph=graph,
         statecharts=statecharts,
         routes=routes,
-        types_module=finalize_types_module(module_name, shared_types),
+        types_module=GeneratedPythonModule.from_registry(
+            module_name, shared_types
+        ),
     )

@@ -14,7 +14,6 @@ from sismic.model import (
 )
 from sysmlc.codegen.python import join_statements
 from sysmlc.codegen.structured import (
-    DataclassRegistry,
     GeneratedPythonModule,
     constructed_payload_definition,
     register_dataclass,
@@ -247,22 +246,26 @@ class SismicBuilder:
         """Register every structured payload type constructed by a send."""
         slots: list[syside.ActionUsage | None] = []
         for state in self._state_facts:
-            slots.extend(
-                (state.entry_action, state.do_action, state.exit_action)
-            )
+            slots.extend(state.executable_actions())
         slots.extend(transition.effect for transition in self._transition_facts)
+        # Repeated sends construct the same type; resolve each definition
+        # once, keyed by its qualified name.
+        seen: set[str] = set()
         for slot in slots:
             for action in actions.inline_actions(slot):
                 if not isinstance(action, syside.SendActionUsage):
                     continue
+                definition = constructed_payload_definition(action)
+                if definition is None:
+                    continue
+                key = str(definition.qualified_name or definition.name)
+                if key in seen:
+                    continue
+                seen.add(key)
                 # Empty payload types stay out of the companion: quake
                 # transports payloads by event name, so only types whose
                 # fields carry data need a class.
-                definition = constructed_payload_definition(action)
-                if (
-                    definition is not None
-                    and definition.owned_attributes.collect()
-                ):
+                if definition.owned_attributes.collect():
                     self._register_dataclass(definition)
 
     def _plan_triggers(self) -> None:
@@ -700,22 +703,6 @@ def build_statechart_with_needs(
     )
 
 
-def finalize_types_module(
-    module_name: str,
-    registry: DataclassRegistry,
-) -> GeneratedPythonModule | None:
-    """Create the generated module for the collected dataclasses, if any.
-
-    The module is only rendered, not installed: executing consumers
-    install it right before execution (see :func:`build_statechart` and
-    the runner), so a write-only build has no process-global side effect.
-    """
-    lines = registry.module_lines()
-    if not lines:
-        return None
-    return GeneratedPythonModule(module_name, tuple(lines))
-
-
 def build_statechart_artifact(
     model: syside.Model,
     state_def_qn: str,
@@ -725,18 +712,21 @@ def build_statechart_artifact(
 ) -> QuakeStatechartArtifact:
     """Build a statechart together with its generated support module."""
     module_name = types_module_name(state_def_qn)
-    needs = QuakeRenderNeeds(types_module=module_name)
-    if external is not None:
-        needs.register_external(module=external[0], names=external[1])
+    needs = QuakeRenderNeeds(types_module=module_name, external=external)
     statechart = build_statechart_with_needs(
         model,
         state_def_qn,
         needs=needs,
         part_system_mode=part_system_mode,
     )
+    # The module is only rendered here, not installed: executing consumers
+    # install right before execution, so a write-only build has no
+    # process-global side effect.
     return QuakeStatechartArtifact(
         statechart=statechart,
-        types_module=finalize_types_module(module_name, needs.dataclasses),
+        types_module=GeneratedPythonModule.from_registry(
+            module_name, needs.dataclasses
+        ),
     )
 
 
