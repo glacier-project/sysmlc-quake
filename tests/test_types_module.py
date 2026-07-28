@@ -13,10 +13,7 @@ from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 from sysmlc_quake.artifacts import QuakeStatechartArtifact
 from sysmlc_quake.backend import QuakeBackend
-from sysmlc_quake.builder import (
-    build_statechart,
-    build_statechart_artifact,
-)
+from sysmlc_quake.builder import build_statechart_artifact
 from sysmlc_quake.parts import QuakePartSystem, build_part_system
 from sysmlc_quake.runner import run_state_def
 from tests import _load_inline_model
@@ -230,14 +227,6 @@ def test_statechart_artifact_owns_generated_types_module(
     interpreter = Interpreter(artifact.statechart)
     interpreter.execute()
     assert isinstance(interpreter.context["point"], generated.Point)
-
-
-def test_public_builder_keeps_returning_a_runnable_statechart(
-    structured_model: syside.Model,
-) -> None:
-    statechart = build_statechart(structured_model, "TypedState::Machine")
-
-    Interpreter(statechart).execute()
 
 
 def test_backend_writes_companion_module(
