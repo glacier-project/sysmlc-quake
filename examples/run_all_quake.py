@@ -50,10 +50,7 @@ from sysmlc_models.showcase import SHOWCASE_DIR
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
 EXAMPLES_DIR = Path(__file__).resolve().parent
-CORPUS_DIRS = {
-    "showcase": SHOWCASE_DIR,
-    "sm-examples": SM_EXAMPLES_DIR,
-}
+CORPUS_DIRS = (SHOWCASE_DIR, SM_EXAMPLES_DIR)
 BUILD_ROOT = EXAMPLES_DIR / "build"
 SHARED_PYTHON_SUPPORT = {
     "showcase/furuta-pendulum/deterministic": (
@@ -140,11 +137,9 @@ def _model_dirs(only: list[str] | None) -> list[Path]:
         SystemExit: If *only* names a folder that does not exist.
     """
     dirs = sorted(
-        {
-            directory
-            for corpus in CORPUS_DIRS.values()
-            for directory in model_dirs_under(corpus)
-        }
+        directory
+        for corpus in CORPUS_DIRS
+        for directory in model_dirs_under(corpus)
     )
     if only is None:
         return dirs
@@ -176,12 +171,12 @@ def _model_name(model_dir: Path) -> str:
     Raises:
         ValueError: If *model_dir* is outside the configured corpora.
     """
-    for corpus_name, corpus_dir in CORPUS_DIRS.items():
+    for corpus_dir in CORPUS_DIRS:
         try:
             relative = model_dir.relative_to(corpus_dir)
         except ValueError:
             continue
-        return f"{corpus_name}/{relative.as_posix()}"
+        return f"{corpus_dir.name}/{relative.as_posix()}"
     raise ValueError(f"model directory is outside the corpora: {model_dir}")
 
 

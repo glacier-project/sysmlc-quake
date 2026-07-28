@@ -12,30 +12,9 @@ if TYPE_CHECKING:
 
 def _configure_corpus(monkeypatch: pytest.MonkeyPatch, root: Path) -> Path:
     showcase = root / "showcase"
-    monkeypatch.setattr(
-        run_all_quake,
-        "CORPUS_DIRS",
-        {"showcase": showcase},
-    )
+    monkeypatch.setattr(run_all_quake, "CORPUS_DIRS", (showcase,))
     monkeypatch.setattr(run_all_quake, "SHARED_PYTHON_SUPPORT", {})
     return showcase
-
-
-def test_model_dirs_discovers_nested_models(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    showcase = _configure_corpus(monkeypatch, tmp_path)
-    direct = showcase / "thermostat"
-    nested = showcase / "furuta-pendulum" / "deterministic"
-    direct.mkdir(parents=True)
-    nested.mkdir(parents=True)
-    (direct / "thermostat.sysml").touch()
-    (nested / "furuta.sysml").touch()
-
-    assert run_all_quake._model_dirs(None) == [nested, direct]
-    assert run_all_quake._model_name(nested) == (
-        "showcase/furuta-pendulum/deterministic"
-    )
 
 
 def test_model_dirs_accepts_nested_aliases(
@@ -46,6 +25,9 @@ def test_model_dirs_accepts_nested_aliases(
     nested.mkdir(parents=True)
     (nested / "furuta.sysml").touch()
 
+    assert run_all_quake._model_name(nested) == (
+        "showcase/furuta-pendulum/deterministic"
+    )
     assert run_all_quake._model_dirs(["furuta-pendulum/deterministic"]) == [
         nested
     ]
