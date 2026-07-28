@@ -703,8 +703,10 @@ assignment simply rebinds the context name.
 > `dataclasses.replace(reading, ...)` fails under quake, while both work
 > under rosetta, which transports real instances over LF ports. External
 > Python called with an accepted payload must treat it structurally
-> (attribute access only, reconstruct via `type(x)(...)`), as the bundled
-> furuta physics module does.
+> (attribute access only). Reconstruction via `type(x)(...)` is appropriate
+> only for construction-side generated dataclasses, such as the
+> `PendulumState` passed to the bundled furuta physics module's `step`
+> function; it is not valid for an accepted sismic `Event`.
 
 ______________________________________________________________________
 
