@@ -21,6 +21,8 @@ from sysmlc.sysml.queries import feature_value
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
+
 
 def _aliased_library_functions() -> dict[str, str]:
     """Alias every shared ``math.<name>`` rendering to ``_<name>``.
@@ -85,7 +87,7 @@ class QuakeRenderNeeds:
         *,
         types_module: str | None = None,
         dataclasses: DataclassRegistry | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> None:
         """Initialize the registry.
 
@@ -97,35 +99,43 @@ class QuakeRenderNeeds:
             external: Optional ``(module_stem, function_names)`` pair for
                 external calc-def backing, registered on construction.
         """
-        self.external_module: str | None = None
-        self.external_names: frozenset[str] = frozenset()
-        self.used_external: set[str] = set()
         self.undeliverable_sends: set[tuple[str, str]] = set()
         self.types_module = types_module
         self.dataclasses = (
             dataclasses if dataclasses is not None else DataclassRegistry()
         )
-        if external is not None:
-            self.register_external(module=external[0], names=external[1])
+        self._external: list[ForeignArtifact] = external or []
+        self._used_external: dict[ForeignArtifact, set[str]] = {}
 
-    def register_external(self, *, module: str, names: frozenset[str]) -> None:
-        """Record the --python module and the function names it provides."""
-        self.external_module = module
-        self.external_names = names
+    @property
+    def used_external(self) -> dict[ForeignArtifact, set[str]]:
+        """Foreign artifacts and function names actually invoked so far.
+
+        Populated incrementally as calc-def calls backed by an external
+        artifact are emitted. Callers (typically a backend that needs to
+        know which support modules to bundle) should read this only after
+        generation is complete.
+        """
+        return self._used_external
 
     def external_import_lines(self) -> list[str]:
         """Render sorted imports for the external functions actually called.
 
         A name that no rendered snippet invokes is not imported: the emitted
         statechart must not depend on the --python module on behalf of code
-        that never uses it.
+        that never uses it. Artifacts are walked in the order they were
+        provided, so the generated imports are stable across builds.
         """
-        if self.external_module is None:
-            return []
-        return [
-            f"from {self.external_module} import {name}"
-            for name in sorted(self.used_external)
-        ]
+        lines: list[str] = []
+        for artifact in self.external:
+            names = self.used_external.get(artifact)
+            if not names:
+                continue
+            lines.extend(
+                f"from {artifact.file_name} import {name}"
+                for name in sorted(names)
+            )
+        return lines
 
     def types_import_lines(self) -> list[str]:
         """Render the preamble import for generated structured types."""
@@ -364,9 +374,8 @@ class SismicCodeGen(PythonCodeGen):
             return library_call[0]
         external_call = self._emit_external_calculation_invocation(
             expr,
-            external_module=self._needs.external_module,
-            external_names=self._needs.external_names,
-            used_external=self._needs.used_external,
+            external=self._external,
+            used_external=self.used_external,
         )
         if external_call is not None:
             return external_call
