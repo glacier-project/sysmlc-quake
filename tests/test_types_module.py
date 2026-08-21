@@ -8,6 +8,7 @@ from sismic.interpreter import Interpreter
 from sysmlc.backends import OutputOptions
 from sysmlc.cli import _load_external_module
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
@@ -316,7 +317,7 @@ def test_external_module_can_import_generated_type_at_top_level(
     report = run_state_def(
         external_model,
         "TypedRun::Machine",
-        external=("typed_support", frozenset({"shift"})),
+        external=[ForeignArtifact(support, "python")],
     )
 
     assert report.all_final
@@ -340,7 +341,7 @@ def test_backend_defers_external_import_until_generated_types_exist(
     report = backend.run_state_def(
         external_model,
         "TypedRun::Machine",
-        external=("typed_support", frozenset({"shift"})),
+        external=[ForeignArtifact(support, "python")],
         load_external=lambda: _load_external_module(support),
     )
 
@@ -394,7 +395,7 @@ def test_part_runner_defers_external_import_until_types_exist(
     report = backend.run_part_system(
         part_model,
         "TypedPart::system",
-        external=("typed_part_support", frozenset({"unused"})),
+        external=[ForeignArtifact(support, "python")],
         load_external=lambda: _load_external_module(support),
     )
 

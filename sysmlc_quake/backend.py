@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import syside
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
 class QuakeBackend(Backend):
@@ -43,8 +44,7 @@ class QuakeBackend(Backend):
         self,
         model: syside.Model,
         element_qn: str,
-        *,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> QuakeStatechartArtifact:
         """Build the Sismic statechart for the given state definition."""
         return build_statechart_artifact(model, element_qn, external=external)
@@ -66,7 +66,7 @@ class QuakeBackend(Backend):
         usage_qn: str,
         *,
         target_options: tuple[tuple[str, str], ...] = (),
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
     ) -> QuakePartSystem:
         """Build a connected part system for coordinated execution."""
         if target_options:
@@ -83,7 +83,7 @@ class QuakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> runner.RunReport:
         """Execute a state definition to quiescence."""
@@ -104,7 +104,7 @@ class QuakeBackend(Backend):
         *,
         max_steps: int = 1000,
         until: float | None = None,
-        external: tuple[str, frozenset[str]] | None = None,
+        external: list[ForeignArtifact] | None = None,
         load_external: Callable[[], None] | None = None,
     ) -> runner.RunReport:
         """Execute a connected part system to quiescence."""

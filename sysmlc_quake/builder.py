@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import syside
 from sismic.model import (
@@ -45,6 +46,9 @@ from sysmlc_quake.codegen import (
     SismicCodeGen,
     math_import_lines,
 )
+
+if TYPE_CHECKING:
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +204,7 @@ class SismicBuilder:
         self._collect_sends()
         self._plan_triggers()
         self._plan_completions()
-        if self._needs.external_module is not None:
+        if self._needs.external:
             # Assemble a scratch statechart first purely to record the calls;
             self._assemble(Statechart(name=self._name, preamble=""))
         imports = self._preamble_import_lines()
@@ -707,7 +711,7 @@ def build_statechart_artifact(
     model: syside.Model,
     state_def_qn: str,
     *,
-    external: tuple[str, frozenset[str]] | None = None,
+    external: list[ForeignArtifact] | None = None,
     part_system_mode: bool = False,
 ) -> QuakeStatechartArtifact:
     """Build a statechart together with its generated support module."""
@@ -734,7 +738,7 @@ def build_statechart(
     model: syside.Model,
     state_def_qn: str,
     *,
-    external: tuple[str, frozenset[str]] | None = None,
+    external: list[ForeignArtifact] | None = None,
     part_system_mode: bool = False,
 ) -> Statechart:
     """Build a runnable sismic Statechart from a SysML state definition.
@@ -744,8 +748,8 @@ def build_statechart(
     Args:
         model: Loaded syside model containing the SysML state def.
         state_def_qn: Qualified name of the SysML ``state def`` to translate.
-        external: Optional ``(module_stem, function_names)`` pair for
-            external calc-def backing.
+        external: Optional list of foreign artifacts for external calc-def
+            backing.
         part_system_mode: True when the machine is built inside a part
             system, where ``send ... via <port>`` renders as a call to
             the injected router; false for a standalone statechart,

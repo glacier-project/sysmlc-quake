@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from sysmlc.errors import ExecutionError
+from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
@@ -18,6 +19,8 @@ FIX = SM_EXAMPLES_DIR / "part01-two-parts"
 MUX = SM_EXAMPLES_DIR / "part-mux"
 RAMP = SM_EXAMPLES_DIR / "sm15-external"
 PART_EXTERNAL = SM_EXAMPLES_DIR / "part-external"
+RAMP_ARTIFACT = ForeignArtifact(RAMP / "ramp.py", "python")
+PART_EXTERNAL_ARTIFACT = ForeignArtifact(PART_EXTERNAL / "bump.py", "python")
 
 TIMED_MODEL = """
 package RunTimed {
@@ -152,7 +155,7 @@ def test_run_state_def_with_external_module(
         load_model(RAMP),
         "SM15::Ramp",
         until=0.25,
-        external=("ramp", frozenset({"step"})),
+        external=[RAMP_ARTIFACT],
     )
 
     assert report.stop_reason is StopReason.TIME_BOUND
@@ -168,7 +171,7 @@ def test_run_part_system_with_external_module(
         load_model(PART_EXTERNAL),
         "PartExt::counterSystem",
         until=0.25,
-        external=("bump", frozenset({"bump"})),
+        external=[PART_EXTERNAL_ARTIFACT],
     )
 
     assert report.stop_reason is StopReason.TIME_BOUND

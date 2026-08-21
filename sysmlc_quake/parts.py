@@ -20,6 +20,7 @@ from sysmlc_quake.codegen import QuakeRenderNeeds
 if TYPE_CHECKING:
     import syside
     from sismic.model import Statechart
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
 @dataclass(frozen=True)
@@ -43,14 +44,14 @@ def build_part_system(
     model: syside.Model,
     usage_qn: str,
     *,
-    external: tuple[str, frozenset[str]] | None = None,
+    external: list[ForeignArtifact] | None = None,
 ) -> QuakePartSystem:
     """Build a quake part-system artifact for a top-level part usage.
 
     Args:
         model: Loaded syside model containing the part usage.
         usage_qn: Qualified name of the top-level part usage to build.
-        external: Optional ``(module_stem, function_names)`` pair for
+        external: Optional ``list[ForeignArtifact]`` for
             external calc-def backing.
 
     Returns:
