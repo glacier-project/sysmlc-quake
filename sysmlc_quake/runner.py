@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     import syside
+    from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,7 @@ def run_state_def(
     *,
     max_steps: int = 1000,
     until: float | None = None,
-    external: tuple[str, frozenset[str]] | None = None,
+    external: list[ForeignArtifact] | None = None,
     load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a single state definition to quiescence.
@@ -94,7 +95,7 @@ def run_state_def(
         until: Simulated-time upper bound; events at exactly ``until``
             still run, and a bounded stop leaves the clock at ``until``.
             ``None`` runs to quiescence.
-        external: Optional ``(module_stem, function_names)`` pair for
+        external: Optional ``list[ForeignArtifact]`` for
             external calc-def backing.
         load_external: Callback that imports the external module after
             generated companion modules have been installed.
@@ -135,7 +136,7 @@ def run_part_system(
     *,
     max_steps: int = 1000,
     until: float | None = None,
-    external: tuple[str, frozenset[str]] | None = None,
+    external: list[ForeignArtifact] | None = None,
     load_external: Callable[[], None] | None = None,
 ) -> RunReport:
     """Execute a connected part system to quiescence.
@@ -147,7 +148,7 @@ def run_part_system(
         until: Simulated-time upper bound; events at exactly ``until``
             still run, and a bounded stop leaves the clock at ``until``.
             ``None`` runs to quiescence.
-        external: Optional ``(module_stem, function_names)`` pair for
+        external: Optional ``list[ForeignArtifact]`` for
             external calc-def backing.
         load_external: Callback that imports the external module after
             generated companion modules have been installed.

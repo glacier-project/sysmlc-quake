@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from sysmlc.errors import UnsupportedConstructError
+from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
@@ -19,6 +20,7 @@ MUX = SM_EXAMPLES_DIR / "part-mux"
 MULTI = SM_EXAMPLES_DIR / "part-multi-exhibit"
 UNDECLARED_VIA = SM_EXAMPLES_DIR / "part-undeclared-via"
 EXTERNAL = SM_EXAMPLES_DIR / "part-external"
+EXTERNAL_ARTIFACT = ForeignArtifact(EXTERNAL / "bump.py", "python")
 FANIN = Path(__file__).resolve().parent / "fixtures" / "part-fanin"
 
 
@@ -45,11 +47,11 @@ def test_build_part_system_threads_external_functions() -> None:
     system = build_part_system(
         load_model(EXTERNAL),
         "PartExt::counterSystem",
-        external=("ext", frozenset({"bump"})),
+        external=[EXTERNAL_ARTIFACT],
     )
 
     counter = system.statecharts["c"]
-    assert "from ext import bump" in counter.preamble.splitlines()
+    assert "from bump import bump" in counter.preamble.splitlines()
     ticking = [t for t in counter.transitions if t.source == "ticking"]
     assert [t.action for t in ticking] == ["x = bump(x)"]
 
@@ -335,8 +337,12 @@ def test_external_import_lands_only_in_parts_that_call_it(
 ) -> None:
     model = _load_inline_model(tmp_path, MIXED_EXTERNAL_MODEL)
 
+    support = tmp_path / "ext.py"
+    support.write_text("def bump(value):\n    return value + 1\n")
     system = build_part_system(
-        model, "PartMixed::sys", external=("ext", frozenset({"bump"}))
+        model,
+        "PartMixed::sys",
+        external=[ForeignArtifact(support, "python")],
     )
 
     assert (

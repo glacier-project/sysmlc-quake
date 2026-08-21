@@ -96,15 +96,15 @@ class QuakeRenderNeeds:
                 build wants one.
             dataclasses: A dataclass registry shared with other machines
                 of the same build, or None for a fresh one.
-            external: Optional ``(module_stem, function_names)`` pair for
-                external calc-def backing, registered on construction.
+            external: Optional list of foreign artifacts for external
+                calc-def backing, registered on construction.
         """
         self.undeliverable_sends: set[tuple[str, str]] = set()
         self.types_module = types_module
         self.dataclasses = (
             dataclasses if dataclasses is not None else DataclassRegistry()
         )
-        self._external: list[ForeignArtifact] = external or []
+        self.external = external or []
         self._used_external: dict[ForeignArtifact, set[str]] = {}
 
     @property
@@ -194,8 +194,9 @@ class SismicCodeGen(PythonCodeGen):
                 identity so same-named SysML features in other scopes do not
                 alias accidentally.
         """
-        super().__init__(context)
-        self._needs = needs if needs is not None else QuakeRenderNeeds()
+        self._needs = needs if needs else QuakeRenderNeeds()
+        super().__init__(context, external=self._needs.external)
+        self._needs._used_external = self._used_external
         self._part_system_mode = part_system_mode
         self._feature_aliases = tuple(feature_aliases)
 
@@ -374,8 +375,8 @@ class SismicCodeGen(PythonCodeGen):
             return library_call[0]
         external_call = self._emit_external_calculation_invocation(
             expr,
-            external=self._external,
-            used_external=self.used_external,
+            external=self._needs.external,
+            used_external=self._needs.used_external,
         )
         if external_call is not None:
             return external_call
