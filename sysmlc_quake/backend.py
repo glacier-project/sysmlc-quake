@@ -37,6 +37,7 @@ class QuakeBackend(Backend):
                 ("yaml", "YAML-serialized Sismic statechart"),
                 ("plantuml", "PlantUML statechart diagram"),
             ),
+            foreign_artifact_languages=("python",),
         )
 
     @override

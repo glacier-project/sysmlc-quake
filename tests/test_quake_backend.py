@@ -154,3 +154,11 @@ def test_quake_backend_is_discoverable() -> None:
     backends = discover_backends()
     assert "quake" in backends
     assert isinstance(backends["quake"], QuakeBackend)
+
+
+def test_quake_backend_declares_supported_foreign_artifact_languages() -> None:
+    backend = QuakeBackend()
+
+    assert backend.supported_foreign_artifact_languages() == frozenset(
+        {"python"}
+    )
