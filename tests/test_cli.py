@@ -337,7 +337,7 @@ def test_quake_run_with_invalid_python_file_fails_cleanly(
     )
 
     assert rc == 1
-    assert "bad.py" in capsys.readouterr().err
+    assert "invalid syntax" in capsys.readouterr().err
 
 
 def test_quake_run_unregisters_failed_python_module(
