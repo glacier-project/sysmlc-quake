@@ -46,6 +46,7 @@ class QuakeBackend(Backend):
         model: syside.Model,
         element_qn: str,
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> QuakeStatechartArtifact:
         """Build the Sismic statechart for the given state definition."""
         return build_statechart_artifact(model, element_qn, external=external)
@@ -68,6 +69,7 @@ class QuakeBackend(Backend):
         *,
         target_options: tuple[tuple[str, str], ...] = (),
         external: list[ForeignArtifact] | None = None,
+        strict_extern: bool = False,
     ) -> QuakePartSystem:
         """Build a connected part system for coordinated execution."""
         if target_options:
