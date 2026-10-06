@@ -196,7 +196,7 @@ class SismicCodeGen(PythonCodeGen):
         """
         self._needs = needs if needs else QuakeRenderNeeds()
         super().__init__(context, external=self._needs.external)
-        self._needs._used_external = self._used_external
+        self._used_external = self._needs.used_external
         self._part_system_mode = part_system_mode
         self._feature_aliases = tuple(feature_aliases)
 
