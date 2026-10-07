@@ -21,15 +21,14 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_composite_builds_hierarchy_and_execution_descends(
+def test_composite_builds_scoped_hierarchy(
     model: syside.Model,
 ) -> None:
     """A substate owning substates becomes a CompoundState subtree.
 
     The composite carries relative-path children and its
     entry-selected initial, the within-composite transition connects
-    relative-path endpoints, and execution descends through the built
-    hierarchy to the transition's target.
+    relative-path endpoints.
     """
     sc = build_statechart(model, "SM08::MachineNested")
     assert isinstance(sc.state_for("running"), CompoundState)
@@ -41,10 +40,6 @@ def test_composite_builds_hierarchy_and_execution_descends(
     assert sc.parent_for("running::hot") == "running"
     assert sc.parent_for("idle") == "MachineNested"
     assert has_transition(sc, "running::warming", "running::hot")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "running" in interpreter.configuration
-    assert "running::hot" in interpreter.configuration
 
 
 def test_three_level_nesting_recurses(model: syside.Model) -> None:

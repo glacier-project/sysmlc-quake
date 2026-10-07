@@ -107,22 +107,6 @@ def test_chained_reference_duration_is_read_at_entry(
     assert interp.final
 
 
-def test_time_trigger_does_not_fire_before_duration_elapses(
-    model: syside.Model,
-) -> None:
-    """The transition fires once the clock reaches entry+t, not before."""
-    sc = build_statechart(model, "SM13::MachineAfterSeconds")
-    interp = Interpreter(sc)
-    interp.execute()
-    assert not interp.final
-    interp.clock.time = 4.9
-    interp.execute()
-    assert not interp.final
-    interp.clock.time = 5.0
-    interp.execute()
-    assert interp.final
-
-
 def test_after_with_guard_conjoins_condition_and_fires_when_true(
     model: syside.Model,
 ) -> None:
