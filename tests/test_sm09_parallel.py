@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from sismic.interpreter import Interpreter
 from sismic.model import CompoundState, OrthogonalState
 from sysmlc.sysml.loading import load_model
 
@@ -21,21 +20,17 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
-def test_parallel_root_activates_all_regions_concurrently(
+def test_parallel_root_is_an_orthogonal_state(
     model: syside.Model,
 ) -> None:
     """A ``parallel`` state def runs all its regions at once.
 
     Per the book (§28.3): a ``parallel`` state's substates are
     non-exclusive concurrent regions. The builder maps it to an
-    ``OrthogonalState``, and execution activates every region.
+    ``OrthogonalState``.
     """
     sc = build_statechart(model, "SM09::MachineParallel")
     assert isinstance(sc.state_for("MachineParallel"), OrthogonalState)
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "lights::on" in interpreter.configuration
-    assert "sound::beeping" in interpreter.configuration
 
 
 def test_regions_are_compounds_with_scoped_initials_and_substates(

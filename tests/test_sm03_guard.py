@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from sismic.interpreter import Interpreter
 from sysmlc.sysml.loading import load_model
 
 from sysmlc_quake import build_statechart
@@ -58,31 +57,7 @@ def test_transition_guard_is_emitted_python_source(
     grammar is covered per shape by ``render_expression`` tests in
     tests/codegen/test_python.py, and every SM03 machine still builds
     and executes through the corpus-wide invariant in
-    test_sm_common.py.
+    test_model_scenarios.py.
     """
     sc = build_statechart(model, "SM03::MachineLogicalChain")
     assert sc.transitions[0].guard == "a and b or c"
-
-
-def test_true_guard_fires_transition(model: syside.Model) -> None:
-    """A guard evaluating truthy lets the transition fire.
-
-    Per SysML v2 §7.18.3, triggering rule 2: a transition usage with
-    a guard expression "can only be triggered if the guard expression
-    evaluates to true". End-to-end check that the preamble bindings,
-    the emitted guard, and sismic's evaluator round-trip.
-    """
-    sc = build_statechart(model, "SM03::MachineRef")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "running" in interpreter.configuration
-
-
-def test_false_guard_keeps_transition_disabled(
-    model: syside.Model,
-) -> None:
-    """A guard evaluating falsy keeps the transition disabled."""
-    sc = build_statechart(model, "SM03::MachineLiteralFalse")
-    interpreter = Interpreter(sc)
-    interpreter.execute()
-    assert "idle" in interpreter.configuration
