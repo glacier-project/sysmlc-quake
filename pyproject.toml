@@ -49,8 +49,8 @@ build-backend = "hatchling.build"
 packages = ["sysmlc_quake"]
 
 [tool.uv.sources]
-sysmlc = { git = "https://github.com/glacier-project/sysmlc-core", branch = "dev" }
-sysmlc-models = { git = "https://github.com/glacier-project/sysmlc-models", branch = "dev" }
+sysmlc = { git = "https://github.com/glacier-project/sysmlc-core", branch = "main" }
+sysmlc-models = { git = "https://github.com/glacier-project/sysmlc-models", branch = "main" }
 
 [tool.pyrefly]
 python-version = "3.12.0"
