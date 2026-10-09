@@ -30,8 +30,12 @@ def test_constraints_attach_to_root_and_substate(
 ) -> None:
     sc = build_statechart(model, "SM17::MachineScoped")
 
-    assert sc.state_for("MachineScoped").invariants == ["level > 0.0"]
-    assert sc.state_for("idle").invariants == ["level <= 2.0"]
+    assert sc.state_for("MachineScoped").invariants == [
+        "(level > 0.0) # sysmlc.constraint_id=0"
+    ]
+    assert sc.state_for("idle").invariants == [
+        "(level <= 2.0) # sysmlc.constraint_id=1"
+    ]
 
 
 def test_counter_constraint_fails_after_limit_is_exceeded(
@@ -39,7 +43,7 @@ def test_counter_constraint_fails_after_limit_is_exceeded(
 ) -> None:
     sc = build_statechart(model, "SM17::MachineCounterLimit")
     assert sc.state_for("MachineCounterLimit").invariants == [
-        "counter <= maxCount"
+        "(counter <= maxCount) # sysmlc.constraint_id=0"
     ]
 
     interpreter = Interpreter(sc)
@@ -63,7 +67,9 @@ def test_negated_constraint_renders_wrapped_and_raises_at_runtime(
     """
     sc = build_statechart(model, "SM17::MachineNegated")
 
-    assert sc.state_for("MachineNegated").invariants == ["not (level > 2.0)"]
+    assert sc.state_for("MachineNegated").invariants == [
+        "(not (level > 2.0)) # sysmlc.constraint_id=0"
+    ]
 
     interpreter = Interpreter(sc)
     interpreter.execute()
@@ -79,8 +85,8 @@ def test_constraint_serializes_as_yaml_contract(model: syside.Model) -> None:
     text = to_yaml(sc)
 
     assert "contract:" in text
-    assert "always: level > 0.0" in text
-    assert "always: level <= 2.0" in text
+    assert "(level > 0.0) # sysmlc.constraint_id=0" in text
+    assert "(level <= 2.0) # sysmlc.constraint_id=1" in text
 
 
 def test_function_constraint_uses_math_alias_and_is_enforced(
@@ -96,7 +102,7 @@ def test_function_constraint_uses_math_alias_and_is_enforced(
     lines = sc.preamble.splitlines()
     assert lines[: len(QUAKE_PREAMBLE_IMPORTS)] == list(QUAKE_PREAMBLE_IMPORTS)
     assert sc.state_for("MachineFunctionViolation").invariants == [
-        "_cos(x) <= 0.0"
+        "(_cos(x) <= 0.0) # sysmlc.constraint_id=0"
     ]
 
     interpreter = Interpreter(sc)
