@@ -1253,7 +1253,7 @@ dependencies = [
 [[package]]
 name = "sysmlc-models"
 version = "0.0.0"
-source = { git = "https://github.com/glacier-project/sysmlc-models?branch=main#1fab80e333e6a2ec018723d468295d24af9aaf18" }
+source = { git = "https://github.com/glacier-project/sysmlc-models?branch=main#10cb20bd5d72e4e816850c331c1953ac15992a6d" }
 
 [[package]]
 name = "sysmlc-quake"
