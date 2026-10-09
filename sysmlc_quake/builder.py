@@ -39,7 +39,7 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 
-from sysmlc_quake.artifacts import QuakeStatechartArtifact
+from sysmlc_quake.artifacts import QuakeInvariant, QuakeStatechartArtifact
 from sysmlc_quake.codegen import (
     TICK_METADATA_KEY,
     QuakeRenderNeeds,
@@ -152,6 +152,7 @@ class SismicBuilder:
         self._preamble: list[str] = []
         self._seen_attrs: dict[str, str] = {}
         self._constraints: list[ConstraintFact] = []
+        self._invariants: list[QuakeInvariant] = []
         self._state_facts: list[StateFact] = []
         self._transition_facts: list[TransitionFact] = []
         self._planned_triggers: dict[
@@ -190,6 +191,11 @@ class SismicBuilder:
     def bind_constraint(self, fact: ConstraintFact) -> None:
         """Buffer an asserted constraint for sismic invariant emission."""
         self._constraints.append(fact)
+
+    @property
+    def invariants(self) -> tuple[QuakeInvariant, ...]:
+        """Source identities for the assembled statechart's invariants."""
+        return tuple(self._invariants)
 
     def add_state(self, state: StateFact) -> None:
         """Buffer a state fact (emitted in :meth:`result`)."""
@@ -518,12 +524,21 @@ class SismicBuilder:
 
     def _emit_constraints(self, statechart: Statechart) -> None:
         """Attach asserted constraints to their owning sismic states."""
-        for fact in self._constraints:
+        self._invariants.clear()
+        for check_id, fact in enumerate(self._constraints):
             state_name = self._name if fact.scope == "" else fact.scope
             rendered = self._codegen.render_expression(fact.expression)
             if fact.is_negated:
                 rendered = f"not ({rendered})"
+            # Sismic reports the condition, without its list index. The
+            # annotation distinguishes checks with identical expressions.
+            rendered = f"({rendered}) # sysmlc.constraint_id={check_id}"
             statechart.state_for(state_name).invariants.append(rendered)
+            self._invariants.append(
+                QuakeInvariant(
+                    state_name, fact.scope, fact.name, check_id, rendered
+                )
+            )
 
     def _emit_transition(
         self,
@@ -717,12 +732,12 @@ def build_statechart_artifact(
     """Build a statechart together with its generated support module."""
     module_name = types_module_name(state_def_qn)
     needs = QuakeRenderNeeds(types_module=module_name, external=external)
-    statechart = build_statechart_with_needs(
-        model,
-        state_def_qn,
+    builder = SismicBuilder(
+        state_def_qn.split("::")[-1],
         needs=needs,
         part_system_mode=part_system_mode,
     )
+    statechart = StateMachineDriver(model).run(state_def_qn, builder)
     # The module is only rendered here, not installed: executing consumers
     # install right before execution, so a write-only build has no
     # process-global side effect.
@@ -731,6 +746,7 @@ def build_statechart_artifact(
         types_module=GeneratedPythonModule.from_registry(
             module_name, needs.dataclasses
         ),
+        invariants=builder.invariants,
     )
 
 
