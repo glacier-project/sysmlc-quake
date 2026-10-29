@@ -30,14 +30,14 @@ Limitation callout. **Not yet**: not implemented.
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
 | `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                  |
 | `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed                        |
-| `entry`/`exit` actions                                               | Done, to refine | referencing form (`entry helper;`) silently dropped                                                                                        |
+| `entry`/`exit` actions                                               | Done, to refine | inline bodies supported; referenced or typed wrappers rejected                                                                             |
 | `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                                          |
-| transition effect → `action`                                         | Done, to refine | referencing form silently dropped                                                                                                          |
+| transition effect → `action`                                         | Done, to refine | inline bodies supported; referenced or typed wrappers rejected                                                                             |
 | `send` → `send(...)`                                                 | **Done**        | `to <own port>` raises an internal event; a standalone `via` send is dropped with a warning (no connection); other `to` receivers rejected |
 | library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                                             |
 | external `calc def` calls via `--python`                             | **Done**        | state definitions and part systems, on build and run; build copies the Python module beside each generated artifact group                  |
 | enum literals → projected primitive values                           | **Done**        | a valued literal emits its declared value, a plain literal its name as a string; structured enumerations rejected                          |
-| referenced / performed actions                                       | Not yet         | `entry helper;`, `do A;`, perform in any action slot: fixes the silent drops of the entry/exit and effect rows                             |
+| referenced / performed actions                                       | Not yet         | referenced or typed entry/exit/do/effect wrappers are rejected, including wrappers with local statements                                   |
 | `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                                                   |
 | `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                                           |
 | exhibit / entry point                                                | Not yet         | selecting an exhibited state usage as the build element; part systems already resolve each part def's exhibit (Section 5)                  |
@@ -1480,12 +1480,13 @@ statechart:
     - {name: running}
 ```
 
-> ⚠️ **Limitation:** only the inline forms are translated. The referencing form
-> (`entry helper;`, performing an action declared elsewhere, valid SysML) is
-> **silently dropped**: the state builds with no `on entry`, and the helper's
-> effect never runs. The same holds for `exit`. (A `do` that references another
-> action is rejected fail-loud instead, 4.3.) Planned support: translate the
-> referenced action when standalone actions are supported.
+> **Supported subset:** only inline forms are translated. Referenced or typed
+> `entry` and `exit` wrappers (for example `entry helper;` or
+> `entry action local : Work;`) raise `UnsupportedConstructError` with the phase
+> and offending source node, including wrappers with local statements. These
+> forms are valid SysML; executing their referenced bodies is unsupported.
+> Named and anonymous untyped blocks, shorthand `assign`/`send` and empty
+> action slots remain supported.
 
 ### 4.2 `exit action` / `exit assign` → `on exit`
 
@@ -1628,10 +1629,10 @@ statechart:
 transition `action`, then `target on entry` (the `sm07-firing-order` example
 exercises exactly this order).
 
-> ⚠️ **Limitation:** a **referencing effect** (`do helper`, performing an action
-> declared elsewhere) is **silently dropped**, exactly as for `entry`/`exit`
-> (4.1): the transition builds with no `action` and the helper never runs. Same
-> planned support as 4.1.
+> **Supported subset:** referenced or typed effects (`do helper` or
+> `do action local : Work`) raise `UnsupportedConstructError` identifying the
+> transition effect and its source node, including wrappers with local
+> statements. Inline effects remain supported as for entry and exit actions.
 
 ### 4.5 `send new Sig(args) [to port | via port]` → `send("Sig", kwargs)`
 
