@@ -1488,6 +1488,19 @@ statechart:
 > Named and anonymous untyped blocks, shorthand `assign`/`send` and empty
 > action slots remain supported.
 
+For inline entry, exit, do and transition-effect bodies, actions without
+explicit sequencing execute in declaration order. This is a deterministic
+SysMLC convention, not an ordering requirement imposed by SysML declarations.
+A complete explicit unconditional linear sequence of single-occurrence actions
+takes precedence over declaration order: `first initialize then multiply;`
+runs `initialize` before `multiply`,
+regardless of where those actions are declared. Supported `then` shorthands
+follow the same rule. Unsupported branching, conditional sequencing, cycles
+and incomplete or disconnected sequences are rejected rather than flattened
+into declaration order. Feature-chain endpoints and optional or repeated
+multiplicities in explicit sequences are also unsupported; explicit `[1]`
+multiplicity is accepted.
+
 ### 4.2 `exit action` / `exit assign` → `on exit`
 
 *Corpus: `sm04-assignment`*
