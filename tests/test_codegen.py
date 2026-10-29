@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+import pytest
 import syside
 from sysmlc.codegen.python import PythonCodeGenContext
 
@@ -68,3 +70,37 @@ class TestSismicCodeGen:
             f"_sysmlc_route({string_delimiter}Ping{string_delimiter}, "
             f"{string_delimiter}commPort{string_delimiter})"
         )
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("equipment.flag", "equipment.flag"),
+        ("(plant.equipment).flag", "plant.equipment.flag"),
+    ],
+)
+def test_member_assignment_mutates_the_resolved_receiver(
+    tmp_path: Path, target: str, expected: str
+) -> None:
+    source = """package Targets {
+    private import ScalarValues::*;
+    part def Equipment { attribute flag : Boolean; }
+    part def Plant { part equipment : Equipment; }
+    state def Machine {
+        in ref equipment : Equipment;
+        in ref plant : Plant;
+        entry; then idle;
+        state idle { entry assign TARGET := true; }
+    }
+}"""
+    model = _load_inline_model(tmp_path, source.replace("TARGET", target))
+    assign = _single_element(model, syside.AssignmentActionUsage)
+    gen = SismicCodeGen()
+    equipment = SimpleNamespace(flag=False)
+    plant = SimpleNamespace(equipment=SimpleNamespace(flag=False))
+    context = {"equipment": equipment, "plant": plant, "flag": False}
+    assert gen.render_assignment_target(assign) == expected
+    exec(gen.render_action(assign), context)
+    assert equipment.flag is (target == "equipment.flag")
+    assert plant.equipment.flag is (target != "equipment.flag")
+    assert context["flag"] is False
