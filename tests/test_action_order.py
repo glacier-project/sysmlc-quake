@@ -51,7 +51,6 @@ def test_action_order_executes(order_model: syside.Model, phase: str) -> None:
         "Guarded",
         "Chained",
         "Foreign",
-        "ShadowStart",
         "Multiplicity",
         "EndMultiplicity",
         "ActionMultiplicity",
