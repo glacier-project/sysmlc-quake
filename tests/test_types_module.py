@@ -104,7 +104,7 @@ package TypedRun {
     private import ScalarValues::*;
 
     attribute def Point {
-        attribute x : Real = 1.0;
+        attribute x : Real default 1.0;
     }
     calc def shift {
         in value : Point;
@@ -180,7 +180,6 @@ def part_model(tmp_path_factory: pytest.TempPathFactory) -> syside.Model:
 @pytest.fixture(autouse=True)
 def clean_generated_modules() -> Iterator[None]:
     names = (
-        "ComputedDefault_Machine_types",
         "NestedTypes_Machine_types",
         "TypedPart_system_types",
         "TypedRun_Machine_types",
@@ -284,19 +283,18 @@ def test_distinct_qualified_types_cannot_share_a_python_name(
         build_statechart_artifact(model, "TypeCollision::Machine")
 
 
-def test_computed_field_default_does_not_leak_into_companion_module(
+def test_field_bound_to_a_call_is_an_unsupported_bound_expression(
     tmp_path: Path,
 ) -> None:
+    # Calls are outside the admitted constant subset, even pure ones.
     model = _load_inline_model(tmp_path, COMPUTED_DEFAULT_MODEL)
 
-    artifact = build_statechart_artifact(model, "ComputedDefault::Machine")
-
-    assert artifact.types_module is not None
-    assert "    x: float = None" in artifact.types_module.source
-    artifact.types_module.install()
-    interpreter = Interpreter(artifact.statechart)
-    interpreter.execute()
-    assert interpreter.context["data"].x == 1.0
+    with pytest.raises(
+        UnsupportedConstructError,
+        match="attribute 'x' is bound with '=' to an expression that is not "
+        "a literal constant",
+    ):
+        build_statechart_artifact(model, "ComputedDefault::Machine")
 
 
 def test_external_module_can_import_generated_type_at_top_level(
