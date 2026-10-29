@@ -19,8 +19,8 @@ Limitation callout. **Not yet**: not implemented.
 | composite `state` → nested state                                     | **Done**        |                                                                                                                                            |
 | `parallel` → orthogonal state                                        | **Done**        |                                                                                                                                            |
 | `then done` → final state                                            | **Done**        |                                                                                                                                            |
-| attribute value → `preamble`                                         | Done, to refine | `=`/`constant` guarantees not enforced; bound expressions snapshotted                                                                      |
-| composite attribute → generated dataclass                            | Done, to refine | whole-value bindings are reconstructed from the type's fields                                                                              |
+| attribute value → `preamble`                                         | Done, to refine | literal constant bindings admitted; unsupported bound expressions and assignments to bound features rejected                               |
+| composite attribute → generated dataclass                            | Done, to refine | fields materialized individually; whole-value bindings rejected                                                                            |
 | bare `transition first A then B`                                     | **Done**        |                                                                                                                                            |
 | transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
@@ -535,12 +535,14 @@ Note that **bound** and **constant** constrain different axes: `=` ties the valu
 to an *expression*, `constant` ties the value
 across *time*. With a literal the two coincide.
 
-**The generator** flattens every valued form to the same thing: a plain,
-**mutable Python variable**, one `preamble` line `name = value` per attribute
-(newline-joined when there are several). A Python variable is exactly SysML's
-`:=`, a start value that may change; the other forms are approximated **as if
-they were `:=`**: their value is kept, the rest of their meaning is dropped
-(limitation below). An attribute with **no value** emits no line at all.
+**The generator** emits one `preamble` line `name = value` per admitted
+attribute. Initial values (`:=`) remain mutable. Bound values (`=`) pass
+shared admission checks before rendering: supported forms are Boolean,
+Integer, Rational and String literals, unary numeric signs, symbolic enumeration
+literals, enumeration literals whose projected values satisfy the same literal
+subset, and literal quantities with standard-library units. Other expressions
+are rejected, including calls whose results happen to be mathematically
+constant. An attribute with **no value** emits no line at all.
 
 ```sysml
 attribute counter : Integer := 0;
@@ -563,15 +565,18 @@ attribute pickDuration : DurationValue default 2 [min];
 preamble: pickDuration = 120.0
 ```
 
-> ⚠️ **Limitation:** everything is emitted as if declared `:=`. The run-time
-> guarantees of **`=`** (permanent equality) and **`constant`** (immutability)
-> are **not enforced**: both stay ordinary mutable variables, and `syside check`
-> does not flag a write to either, so `constant attribute x = 2` followed by
-> `assign x := 5` silently ends at `5`, where SysML fixes it at `2`. A bound
-> expression is also **snapshotted, not tracked**: `attribute x = y + 1` becomes
-> the one-time preamble line `x = y + 1`, so a later change to `y` does not
-> update `x`, where SysML keeps the equation alive. This flattening will need
-> refining if models start relying on those guarantees.
+Assignments to an effective bound feature are rejected in entry, exit, do and
+transition-effect actions, even when assigning the same value. This is a
+SysMLC supported-subset restriction; SysML equality semantics do not prohibit
+every consistent assignment. A `default =` value remains overridable before
+instantiation, but is still a binding when it applies. `default :=` remains
+an initial value.
+
+For example, `attribute x = y + 1` is rejected because the compiler does not
+maintain dynamic bindings. Use `:=` only when a one-time initial value is the
+intended model semantics. The operators are not interchangeable. These checks
+do not provide general enforcement of the separate `constant` modifier or of
+arbitrary mutations made by external Python code.
 
 ### 2.2 composite attribute → generated dataclass
 
@@ -689,11 +694,18 @@ assignment simply rebinds the context name.
 > Recursive structured types and two different types sharing one simple Python
 > class name are also rejected explicitly.
 
-> ⚠️ **Limitation:** a usage-local field redefinition is applied to the
-> constructed value, but a whole-value binding
-> (`attribute pt2 : Point = origin;`) is still reconstructed field by field.
-> In SysML `pt2` *is* `origin`; in the emitted Python they are distinct
-> dataclass instances that merely start equal.
+> ⚠️ **Boundary:** usage-local field redefinitions are applied to the
+> constructed value. A whole-value binding such as
+> `attribute pt2 : Point = origin;` is rejected because field-by-field
+> construction cannot preserve that relationship.
+
+Whole-value assignments must also preserve fixed fields. When the type fixes a
+field with `=`, an unverified replacement such as a calculation result is
+rejected; a compatible referenced value passes this admission check. A fixed
+field declared on the particular usage, including a configuration-created field,
+prevents whole-value replacement. Default fields can be overridden by explicit
+new values. These checks do not add support for constructor expressions as
+assignment values.
 
 > ⚠️ **Boundary:** the generated classes exist on the **construction side**
 > only. On the accept path, guards and effects receive sismic's `Event`
