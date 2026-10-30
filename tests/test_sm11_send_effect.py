@@ -44,15 +44,15 @@ def test_send_effect_emits_send_and_drives_self_accept(
 def test_payload_args_emitted_as_kwargs_and_accepted(
     model: syside.Model,
 ) -> None:
-    """Positional payload args become ``send()`` kwargs and round-trip.
+    """Positional payload args construct the payload object and round-trip.
 
-    The kwargs are named by attribute; the payload-carrying send is
+    The constructor kwargs are named by attribute; the payload-carrying send is
     accepted by the same machine end to end.
     """
     sc = build_statechart(model, "SM11::MachinePayload")
     assert (
         transition_between(sc, "idle", "armed").action
-        == 'send("Reading", value=current)'
+        == 'send("Reading", _sysmlc_payload=_sysmlc_new_Reading(value=current))'
     )
     interpreter = Interpreter(sc)
     interpreter.execute()
@@ -60,26 +60,26 @@ def test_payload_args_emitted_as_kwargs_and_accepted(
 
 
 def test_string_payload_arg_emitted_as_kwarg(model: syside.Model) -> None:
-    """A string payload arg is emitted as a quoted Python kwarg."""
+    """A string payload arg is emitted as a quoted constructor kwarg."""
     sc = build_statechart(model, "SM11::MachineStringPayload")
     assert (
         transition_between(sc, "idle", "armed").action
-        == 'send("Note", text="hi")'
+        == 'send("Note", _sysmlc_payload=_sysmlc_new_Note(text="hi"))'
     )
 
 
 def test_payload_guard_reads_event_field_and_gates_at_runtime(
     model: syside.Model,
 ) -> None:
-    """A payload field read in a guard emits and evaluates ``event.<f>``.
+    """A payload field read in a guard emits and evaluates a payload field.
 
-    The guard string uses sismic's ``event`` namespace and the
+    The guard string reads the payload through ``_sysmlc_payload_of(event)`` and the
     accepted payload value gates the transition at runtime.
     """
     sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Measurement"
-    assert transition.guard == "event.value > 0.5"
+    assert transition.guard == "_sysmlc_payload_of(event).value > 0.5"
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -88,15 +88,15 @@ def test_payload_guard_reads_event_field_and_gates_at_runtime(
 def test_payload_effect_reads_event_field_and_captures_value(
     model: syside.Model,
 ) -> None:
-    """A payload field read in an effect emits and evaluates ``event.<f>``.
+    """A payload field read in an effect emits and evaluates a payload field.
 
-    The effect string uses sismic's ``event`` namespace and the fired
+    The effect string reads the payload through ``_sysmlc_payload_of(event)`` and the fired
     effect captures the accepted payload value.
     """
     sc = build_statechart(model, "SM11::MachineReadablePayloadEffect")
     assert (
         transition_between(sc, "armed", "fired").action
-        == "captured = event.value"
+        == "captured = _sysmlc_payload_of(event).value"
     )
     interpreter = Interpreter(sc)
     interpreter.execute()
@@ -107,25 +107,28 @@ def test_payload_effect_reads_event_field_and_captures_value(
 def test_payload_chain_rewrites_root_and_reads_through_chain(
     model: syside.Model,
 ) -> None:
-    """A payload field chain rewrites only its root to ``event``.
+    """A payload field chain rewrites only its root to the payload reader.
 
     The emitted guard reads through the chained field and the accepted
     payload is read through it at runtime.
     """
     sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
     transition = transition_between(sc, "armed", "fired")
-    assert transition.guard == "event.sample.value > 0.5"
+    assert transition.guard == "_sysmlc_payload_of(event).sample.value > 0.5"
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
 
 
-def test_accept_payload_whole_uses_event(
+def test_accept_payload_whole_uses_payload_reader(
     model: syside.Model,
 ) -> None:
-    """A bare reference to the whole payload binding emits ``event``."""
+    """A bare reference to the whole payload binding emits the payload reader."""
     sc = build_statechart(model, "SM11::MachineReadablePayloadWhole")
-    assert transition_between(sc, "armed", "fired").action == "captured = event"
+    assert (
+        transition_between(sc, "armed", "fired").action
+        == "captured = _sysmlc_payload_of(event)"
+    )
 
 
 def test_mixed_effect_emits_assign_then_send(model: syside.Model) -> None:
@@ -147,19 +150,28 @@ def test_payload_guard_rejects_sent_value(model: syside.Model) -> None:
     assert "fired" not in interpreter.configuration
 
 
-def test_mixed_reads_of_same_event_all_emit_event_namespace(
+def test_mixed_reads_of_same_event_all_use_payload_reader(
     model: syside.Model,
 ) -> None:
     """One event read by field, by chain, and wholly across transitions.
 
     Sismic has no per-event read-shape restriction: the same Measurement
-    is read as ``event.value``, ``event.sample.value``, and bare ``event``
+    is read by field, by chain, and as the bare payload
     in three different transitions of one machine.
     """
     sc = build_statechart(model, "SM11::MachineReadablePayloadMixed")
-    assert transition_between(sc, "b", "c").action == "captured = event.value"
-    assert transition_between(sc, "c", "d").guard == "event.sample.value > 0.5"
-    assert transition_between(sc, "d", "a").action == "wholeCaptured = event"
+    assert (
+        transition_between(sc, "b", "c").action
+        == "captured = _sysmlc_payload_of(event).value"
+    )
+    assert (
+        transition_between(sc, "c", "d").guard
+        == "_sysmlc_payload_of(event).sample.value > 0.5"
+    )
+    assert (
+        transition_between(sc, "d", "a").action
+        == "wholeCaptured = _sysmlc_payload_of(event)"
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     # The single sent Measurement is consumed by the b -> c transition;
@@ -173,7 +185,7 @@ def test_integer_payload_field_read_in_guard(model: syside.Model) -> None:
     sc = build_statechart(model, "SM11::MachineReadableIntegerPayload")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Reading"
-    assert transition.guard == "event.value > 0"
+    assert transition.guard == "_sysmlc_payload_of(event).value > 0"
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -184,7 +196,7 @@ def test_boolean_payload_field_read_bare_in_guard(model: syside.Model) -> None:
     sc = build_statechart(model, "SM11::MachineReadableBooleanPayload")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Flagged"
-    assert transition.guard == "event.armed"
+    assert transition.guard == "_sysmlc_payload_of(event).armed"
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -195,10 +207,10 @@ def test_mixed_primitive_payload_round_trips(model: syside.Model) -> None:
     sc = build_statechart(model, "SM11::MachineMixedPrimitivePadding")
     assert (
         transition_between(sc, "idle", "armed").action
-        == 'send("Mixed", armed=a, value=v, ready=r)'
+        == 'send("Mixed", _sysmlc_payload=_sysmlc_new_Mixed(armed=a, value=v, ready=r))'
     )
     transition = transition_between(sc, "armed", "fired")
-    assert transition.guard == "event.value > 1.0"
+    assert transition.guard == "_sysmlc_payload_of(event).value > 1.0"
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration

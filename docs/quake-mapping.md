@@ -26,7 +26,7 @@ Limitation callout. **Not yet**: not implemented.
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
 | `accept E` (signal) → `event`                                        | Done, to refine | concrete type channels support conforming subtypes; same-source competing signals use declaration order; accepter `via` is not checked     |
 | `if` guard → `guard`                                                 | **Done**        |                                                                                                                                            |
-| `accept reading : E` payload → `event.<field>`                       | **Done**        | field references and the whole payload occurrence alias to sismic's `event`                                                                |
+| `accept reading : E` payload → `_sysmlc_payload_of(event)`           | **Done**        | field references and the whole payload read the generated payload object carried in the event's dedicated data key                         |
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
 | `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                  |
 | `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed                        |
@@ -707,18 +707,17 @@ prevents whole-value replacement. Default fields can be overridden by explicit
 new values. These checks do not add support for constructor expressions as
 assignment values.
 
-> ⚠️ **Boundary:** the generated classes exist on the **construction side**
-> only. On the accept path, guards and effects receive sismic's `Event`
-> object: payload fields read structurally (`event.theta`), but the value
-> is **not an instance** of the generated dataclass, so
-> `isinstance(reading, AngleReading)` is false and
-> `dataclasses.replace(reading, ...)` fails under quake, while both work
-> under rosetta, which transports real instances over LF ports. External
-> Python called with an accepted payload must treat it structurally
-> (attribute access only). Reconstruction via `type(x)(...)` is appropriate
-> only for construction-side generated dataclasses, such as the
-> `PendulumState` passed to the bundled furuta physics module's `step`
-> function; it is not valid for an accepted sismic `Event`.
+A signal payload with fields travels as one instance of its generated class
+(Section 4.5), so an accepted payload sent by a modeled `send` **is** that
+dataclass instance: `isinstance(reading, AngleReading)` holds and
+`dataclasses.replace(reading, ...)` works, as under rosetta.
+
+> ⚠️ **Boundary:** payloads injected from outside are not generated-class
+> instances. The `payload_event` helper (Section 3.2) carries a
+> `types.SimpleNamespace` of the given fields, and a low-level keyword event
+> or a marker event is read as a namespace of the event's own data. External
+> Python called with an accepted payload should therefore treat it
+> structurally (attribute access only) unless it controls the sender.
 
 ______________________________________________________________________
 
@@ -952,11 +951,15 @@ Build artifacts expose `qualified_channels` and `resolve_external(name)`.
 The resolver accepts qualified type names and unambiguous simple names, and
 rejects unknown or ambiguous names. The catalog includes loaded concrete
 subtypes used only by external inputs. For example,
-`interpreter.queue(artifact.resolve_external("Sensors::Reading"), value=41)`
-injects a typed channel; raw `interpreter.queue("Reading", value=41)` remains
-compatible for unambiguous names and remains an untyped low-level interface.
-Payload fields remain flat event keyword arguments. Transport metadata field
-collisions are outside this mapping's supported repair scope.
+`interpreter.queue(payload_event(artifact.resolve_external("Sensors::Reading"), {"value": 41}))`
+injects a typed channel. `sysmlc_quake.payload_event(channel, fields, /)`
+places the field mapping in the same payload envelope that generated sends
+use, so any field name works, including `name`, `data` and `delay`, which
+sismic's `Event` reserves or interprets as scheduling; the helper sets no
+delay. Raw `interpreter.queue("Reading", value=41)` remains compatible for
+unambiguous names and ordinary field names: an accepter reads such keyword
+fields from the event's data. It remains an untyped low-level interface, so
+`name`, `data` and `delay` keep their sismic meaning there.
 
 A composed system shares one catalog across its machines, generated classes
 and routing. Connections deliver the concrete channel only to compatible peers,
@@ -965,7 +968,7 @@ and bidirectional restrictions still apply.
 
 Reading that payload binding in a guard or effect (`accept reading : Reading`
 then `if reading.value > 0.5`) **is** supported: the reference emits as
-`event.value`. See Section 3.7.
+`_sysmlc_payload_of(event).value`. See Section 3.7.
 
 ### 3.3 `if <expr>` → `{guard: <python>}`
 
@@ -1401,7 +1404,7 @@ statechart at a glance").
 > ⚠️ **Boundary:** `when` self-loops are currently rejected as a conservative
 > guardrail against non-quiescing `execute()` runs.
 
-### 3.7 `accept reading : E` payload → `event.<field>`
+### 3.7 `accept reading : E` payload → `_sysmlc_payload_of(event).<field>`
 
 *Corpus: `sm11-send-effect`*
 
@@ -1413,13 +1416,32 @@ read the event's data (`if reading.value > 0.5`, or
 `do assign captured := reading.value`). The reference can chain past a single
 field (`reading.sample.value`).
 
-The accepted occurrence is sismic's runtime `event` object, so the builder
-**aliases the payload binding to `event`**: every reference rooted at the payload
-emits against `event`, so `reading.value` becomes `event.value` and
-`reading.sample.value` becomes `event.sample.value`. A bare reference to the
-whole occurrence aliases the same way, so `f(reading)` emits `f(event)`. The
+Sismic delivers the accepted occurrence as its runtime `event` object, whose
+`_sysmlc_payload` data key carries the payload object (Section 4.5). The builder
+**aliases the payload binding to `_sysmlc_payload_of(event)`**, a function the
+preamble defines whenever an accepter binds its payload: every reference rooted
+at the payload emits against it, so `reading.value` becomes
+`_sysmlc_payload_of(event).value` and `reading.sample.value` becomes
+`_sysmlc_payload_of(event).sample.value`. A bare reference to the whole
+occurrence aliases the same way, so `f(reading)` emits
+`f(_sysmlc_payload_of(event))` and passes the payload object, never the event.
+For an event without the data key (a marker, or a low-level keyword event) the
+function returns a `types.SimpleNamespace` of the event's own data, so a whole
+marker payload is an empty namespace and keyword fields stay readable. The
 alias is keyed on the payload feature's **object identity**, not its name, so a
-same-named feature in another scope never aliases by accident.
+same-named feature in another scope never aliases by accident. The function
+imports locally because sismic executes the preamble with separate globals and
+locals. Its name cannot collide with a generated structured type: the typed
+catalog re-encodes a model type whose name starts with `_` (such as one named
+`'_sysmlc_payload_of'`) to a distinct `_sysmlc_q_<hex>` class symbol, so that
+model builds and runs. An external function of that name, which would be
+imported into the preamble verbatim, is rejected with a diagnostic.
+
+For a generated send or a `payload_event` envelope, the payload is exactly the
+modeled data. Any other event reads as a namespace of its raw `event.data`:
+sismic's `name` attribute is never included, but a raw
+`Event(..., delay=...)` deliberately keeps its `delay` entry, because sismic
+stores that keyword in the event data as well as scheduling by it.
 
 ```sysml
 state def MachineReadablePayloadGuard {
@@ -1443,30 +1465,42 @@ state def MachineReadablePayloadGuard {
 ```yaml
 statechart:
   name: MachineReadablePayloadGuard
-  preamble: current = 0.9
+  preamble: |-
+    from SM11_MachineReadablePayloadGuard_types import Measurement, Sample
+    from SM11_MachineReadablePayloadGuard_types import Measurement as _sysmlc_new_Measurement
+    def _sysmlc_payload_of(event):
+        from types import SimpleNamespace
+        if '_sysmlc_payload' in event.data:
+            return event.data['_sysmlc_payload']
+        return SimpleNamespace(**event.data)
+    current = 0.9
   root state:
     initial: idle
     name: MachineReadablePayloadGuard
     states:
     - name: idle
       transitions:
-      - {action: 'send("Measurement", value=current)', target: armed}
+      - {action: 'send("Measurement", _sysmlc_payload=_sysmlc_new_Measurement(value=current, sample=Sample(value=0.75)))', target: armed}
     - name: armed
       transitions:
-      - {event: Measurement, guard: event.value > 0.5, target: fired}
+      - {event: Measurement, guard: _sysmlc_payload_of(event).value > 0.5, target: fired}
     - {name: fired}
 ```
 
 The same aliasing applies in a transition **effect**
-(`do assign captured := reading.value` emits `captured = event.value`),
-through a **chained** field (`if reading.sample.value > 0.5` emits
-`event.sample.value > 0.5`), and for the **whole occurrence** passed on its
-own (`do assign u := P::torque(reading)` emits `u = torque(event)`).
+(`do assign captured := reading.value` emits
+`captured = _sysmlc_payload_of(event).value`), through a **chained** field
+(`if reading.sample.value > 0.5` emits
+`_sysmlc_payload_of(event).sample.value > 0.5`), and for the **whole
+occurrence** passed on its own (`do assign u := P::torque(reading)` emits
+`u = torque(_sysmlc_payload_of(event))`).
 
 *Why:* sismic delivers the accepted event to the guard/effect namespace under the
 fixed name `event`, so the payload binding has no separate runtime identity.
-Aliasing the SysML binding onto `event` is what lets `reading.value` resolve at
-simulation instead of failing with `name 'reading' is not defined`.
+Aliasing the SysML binding onto the event's payload is what lets
+`reading.value` resolve at simulation instead of failing with
+`name 'reading' is not defined`, while keeping event metadata out of the
+modeled value.
 
 ______________________________________________________________________
 
@@ -1688,7 +1722,7 @@ exercises exactly this order).
 > transition effect and its source node, including wrappers with local
 > statements. Inline effects remain supported as for entry and exit actions.
 
-### 4.5 `send new Sig(args) [to port | via port]` → `send("Sig", kwargs)`
+### 4.5 `send new Sig(args) [to port | via port]` → `send("Sig", _sysmlc_payload=_sysmlc_new_Sig(kwargs))`
 
 *Corpus: `sm11-send-effect`*
 
@@ -1721,14 +1755,17 @@ state def MachinePayload {
 ```yaml
 statechart:
   name: MachinePayload
-  preamble: current = 7
+  preamble: |-
+    from SM11_MachinePayload_types import Reading
+    from SM11_MachinePayload_types import Reading as _sysmlc_new_Reading
+    current = 7
   root state:
     initial: idle
     name: MachinePayload
     states:
     - name: idle
       transitions:
-      - {action: 'send("Reading", value=current)', target: armed}
+      - {action: 'send("Reading", _sysmlc_payload=_sysmlc_new_Reading(value=current))', target: armed}
     - name: armed
       transitions:
       - {event: Reading, target: fired}
@@ -1736,13 +1773,24 @@ statechart:
 ```
 
 *Why:* positional and named payload arguments bind to their resolved item
-fields as keywords (`Reading { attribute value }` gives `value=current`).
+fields as keywords of the type's generated class (`Reading { attribute value }`
+gives `Reading(value=current)`). The instance travels under the dedicated
+`_sysmlc_payload` event-data key, never as flat event keywords, because
+sismic's `Event` reserves `name` and `data` and schedules by `delay`: a payload
+field with one of those names would otherwise crash the send or delay the
+event.
+The send calls the class through the reserved `_sysmlc_new_<Type>` alias,
+imported from the companion module beside the plain class name. A machine
+attribute may share the type's name (`attribute Reading : Integer := 7` next
+to `item def Reading`) and then rebinds the plain name in the preamble; no
+model attribute starts with `_`, so the alias still names the class. An
+external function named like an alias is rejected with a diagnostic.
 Arguments evaluate once at the send, in constructor order. Omitted fields
 carry their effective constant defaults, including inherited defaults and
 defaults replaced through redefinition. For example, with `x default 7` and
 `y default 9`, `new Data(y = 42)` sends `x=7, y=42`, and `new Data()` sends
 `x=7, y=9`. Omitted structured fields materialize their nested values;
-unspecified fields have no keyword. An omitted nonconstant default is
+unspecified fields keep the class placeholder. An omitted nonconstant default is
 diagnosed and must instead be supplied explicitly as a constructor argument.
 Constant eligibility does not imply expression-renderer support: a direct
 quantity default such as `default 0.5 [s]` is rejected with an unsupported
@@ -1750,9 +1798,9 @@ quantity default such as `default 0.5 [s]` is rejected with an unsupported
 scalar-quantity state-machine initialization, which converts values to SI
 magnitudes before rendering.
 A type without application fields sends just `send("Ping")`.
-The keyword travels with the event, and an accepter
+The payload travels with the event, and an accepter
 that binds the payload can read it: `accept reading : Reading` then `reading.value`
-emits `event.value` (Section 3.7). This machine's `accept Reading` binds no name,
+emits `_sysmlc_payload_of(event).value` (Section 3.7). This machine's `accept Reading` binds no name,
 so it matches by type and ignores the payload.
 
 > ⚠️ **Boundary:** a **`via` send is never delivered in a single statechart**.
@@ -2033,8 +2081,8 @@ statechart:
 ```
 
 `_sysmlc_route` is a reserved context name the coordinator binds per
-interpreter at execution time; it queues the signal (with any payload kwargs)
-on the connected peer's **external** queue, point-to-point, with no copy to
+interpreter at execution time; it queues the signal (with its payload object,
+evaluated once at the send) on the connected peer's **external** queue, point-to-point, with no copy to
 the sender. Two usages exhibiting the same behavior share one statechart
 object; the routing stays per instance.
 

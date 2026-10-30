@@ -33,6 +33,7 @@ API reference to render. -->
 
 ```{eval-rst}
 .. automodule:: sysmlc_quake.parts
+.. automodule:: sysmlc_quake.events
 .. automodule:: sysmlc_quake.coordinator
 .. automodule:: sysmlc_quake.runner
 ```

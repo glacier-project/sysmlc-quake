@@ -115,7 +115,7 @@ def test_enum_payload_send_projects_and_drives_accept(
     sc = build_statechart(model, "SM18::MachineEnumPayload")
     assert (
         transition_between(sc, "idle", "armed").action
-        == 'send("Announce", color="yellow")'
+        == 'send("Announce", _sysmlc_payload=_sysmlc_new_Announce(color="yellow"))'
     )
     interpreter = Interpreter(sc)
     interpreter.execute()
