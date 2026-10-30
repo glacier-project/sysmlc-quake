@@ -29,7 +29,6 @@ from sysmlc.semantics.statemachine.facts import (
     AttributeValue,
     AtTrigger,
     CompletionTarget,
-    CompositeValue,
     ConstraintFact,
     SignalTrigger,
     StateFact,
@@ -38,6 +37,7 @@ from sysmlc.semantics.statemachine.facts import (
     Trigger,
     WhenTrigger,
 )
+from sysmlc.sysml.queries import structured_fields
 
 from sysmlc_quake.artifacts import QuakeInvariant, QuakeStatechartArtifact
 from sysmlc_quake.codegen import (
@@ -274,8 +274,8 @@ class SismicBuilder:
                 seen.add(key)
                 # Empty payload types stay out of the companion: quake
                 # transports payloads by event name, so only types whose
-                # fields carry data need a class.
-                if definition.owned_attributes.collect():
+                # fields, owned or inherited, carry data need a class.
+                if structured_fields(definition):
                     self._register_dataclass(definition)
 
     def _plan_triggers(self) -> None:
@@ -451,18 +451,7 @@ class SismicBuilder:
             self._completion_flags_by_source[state.name] = " and ".join(flags)
 
     def _render_value(self, value: AttributeValue) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, CompositeValue):
-            self._register_dataclass(value.definition)
-            fields = ", ".join(
-                f"{name}={self._render_value(field)}"
-                for name, field in value.fields
-            )
-            return f"{value.type_name}({fields})"
-        if isinstance(value, float):
-            return repr(value)
-        return self._codegen.render_expression(value)
+        return self._codegen.render_value(value, self._register_dataclass)
 
     def _register_dataclass(self, definition: syside.Definition) -> None:
         """Register ``definition`` on the shared dataclass registry."""

@@ -1706,9 +1706,22 @@ statechart:
     - {name: fired}
 ```
 
-*Why:* a positional payload argument binds to the item's attribute name as a
-keyword (`Reading { attribute value }` gives `value=current`); a payload-less
-send is just `send("Ping")`. The keyword travels with the event, and an accepter
+*Why:* positional and named payload arguments bind to their resolved item
+fields as keywords (`Reading { attribute value }` gives `value=current`).
+Arguments evaluate once at the send, in constructor order. Omitted fields
+carry their effective constant defaults, including inherited defaults and
+defaults replaced through redefinition. For example, with `x default 7` and
+`y default 9`, `new Data(y = 42)` sends `x=7, y=42`, and `new Data()` sends
+`x=7, y=9`. Omitted structured fields materialize their nested values;
+unspecified fields have no keyword. An omitted nonconstant default is
+diagnosed and must instead be supplied explicitly as a constructor argument.
+Constant eligibility does not imply expression-renderer support: a direct
+quantity default such as `default 0.5 [s]` is rejected with an unsupported
+`Quantity` operator diagnostic during send emission. This is separate from
+scalar-quantity state-machine initialization, which converts values to SI
+magnitudes before rendering.
+A type without application fields sends just `send("Ping")`.
+The keyword travels with the event, and an accepter
 that binds the payload can read it: `accept reading : Reading` then `reading.value`
 emits `event.value` (Section 3.7). This machine's `accept Reading` binds no name,
 so it matches by type and ignores the payload.

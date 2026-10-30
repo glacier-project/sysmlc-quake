@@ -8,6 +8,7 @@ from sysmlc.codegen.python import (
     LIBRARY_FUNCTIONS,
     PythonCodeGen,
     PythonCodeGenContext,
+    payload_fields,
     payload_signature,
 )
 from sysmlc.codegen.structured import DataclassRegistry, types_import_lines
@@ -209,9 +210,13 @@ class SismicCodeGen(PythonCodeGen):
         for a warning) when there is no part system to route it; a send
         directed ``to`` the machine's own port becomes sismic
         ``send('<Event>'[, <field>=<expr>, ...])``, which dispatches the
-        signal to the machine itself as an internal event. Each positional
-        constructor argument becomes a kwarg named by the payload attribute
-        it binds to, in declaration order. The payload must be a typed
+        signal to the machine itself as an internal event. The fields of
+        the constructed type become kwargs: first each constructor
+        argument, named by the field it binds, then each omitted field
+        with the value its type gives it, so the arguments are evaluated
+        once, at the send, in constructor order. An omitted field without
+        a value is not sent, and a type without fields sends the bare
+        event. The payload must be a typed
         ``new <Sig>(...)`` constructor; ``payload_signature`` rejects bare
         values.
 
@@ -224,14 +229,16 @@ class SismicCodeGen(PythonCodeGen):
 
         Raises:
             UnsupportedConstructError: If the send's ``to`` receiver is
-                anything but the machine's own port; a single statechart
-                cannot deliver cross-machine addressing.
+                anything but the machine's own port, since a single
+                statechart cannot deliver cross-machine addressing; or if
+                an omitted field's value from its type is not a literal
+                constant.
             ValueError: If the payload is not a ``new <Type>(...)`` constructor
-                resolving to a named definition, if an argument has no
-                corresponding named attribute, or if an argument uses an
+                resolving to a named definition, if an argument does not
+                bind exactly one field, or if an argument uses an
                 expression shape the emitter rejects.
         """
-        event_name, pairs = payload_signature(send)
+        event_name, _arguments = payload_signature(send)
         if send.receiver_argument is not None and not send_receiver_is_own_port(
             send
         ):
@@ -242,9 +249,8 @@ class SismicCodeGen(PythonCodeGen):
                 "connect instead.",
                 node=send,
             )
-        kwargs = ", ".join(
-            f"{name}={self.render_expression(argument)}"
-            for name, argument in pairs
+        kwargs = self.render_fields(
+            (field.name, field.value) for field in payload_fields(send)
         )
         delimiter = self._context.string_delimiter
         via_port = send_via_port(send)
