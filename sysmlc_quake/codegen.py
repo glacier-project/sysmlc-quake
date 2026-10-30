@@ -21,7 +21,7 @@ from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
     send_via_port,
 )
-from sysmlc.sysml.queries import feature_value
+from sysmlc.sysml.queries import feature_value, structured_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -78,14 +78,58 @@ ROUTER_CONTEXT_KEY = "_sysmlc_route"
 # coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
 
+# Sismic event-data key carrying a data-bearing signal's generated payload
+# object. Modeled fields live on that object, never beside Sismic's own
+# ``name``/``data``/``delay`` event attributes.
+PAYLOAD_DATA_KEY = "_sysmlc_payload"
+
+# Preamble function an accepter's payload binding renders through: it
+# returns the event's payload object, or, for a low-level event queued
+# with plain keyword fields, a namespace holding exactly those fields.
+PAYLOAD_READER = "_sysmlc_payload_of"
+
+# Prefix of the preamble alias a send constructs its payload class
+# through. A model attribute may share the class's own name, but no model
+# attribute starts with ``_``, so the alias cannot be shadowed.
+PAYLOAD_CONSTRUCTOR_PREFIX = "_sysmlc_new_"
+
+
+def payload_constructor(symbol: str) -> str:
+    """Return the reserved preamble alias of a generated payload class."""
+    return PAYLOAD_CONSTRUCTOR_PREFIX + symbol
+
+
+def payload_reader_lines() -> list[str]:
+    """Render the preamble definition of the payload reader.
+
+    The function imports locally: Sismic executes the preamble with
+    separate globals and locals, so a preamble function cannot see names
+    the preamble imports, and module objects cannot live in the copied
+    context.
+
+    Returns:
+        The function definition's source lines.
+    """
+    key = repr(PAYLOAD_DATA_KEY)
+    return [
+        f"def {PAYLOAD_READER}(event):",
+        "    from types import SimpleNamespace",
+        f"    if {key} in event.data:",
+        f"        return event.data[{key}]",
+        "    return SimpleNamespace(**event.data)",
+    ]
+
 
 class QuakeRenderNeeds:
     """Data the code generator fills and the builder reads back.
 
     Passed to every ``SismicCodeGen`` so snippets share it. It holds the
-    external-import configuration, and collects two facts as snippets are
-    rendered: the external names actually called, so only used imports are
-    emitted, and the ``via`` sends dropped for lack of a system context.
+    external-import configuration, and collects three facts as snippets
+    are rendered: the external names actually called, so only used imports
+    are emitted, and the ``via`` sends dropped for lack of a system
+    context. The builder records the generated classes its sends construct
+    before any snippet renders, so they are imported under their reserved
+    payload aliases.
     """
 
     def __init__(
@@ -119,6 +163,7 @@ class QuakeRenderNeeds:
         )
         self.external = external or []
         self._used_external: dict[ForeignArtifact, set[str]] = {}
+        self.payload_constructors: set[str] = set()
 
     @property
     def used_external(self) -> dict[ForeignArtifact, set[str]]:
@@ -151,8 +196,19 @@ class QuakeRenderNeeds:
         return lines
 
     def types_import_lines(self) -> list[str]:
-        """Render the preamble import for generated structured types."""
-        return types_import_lines(self.types_module, self.dataclasses.names())
+        """Render the preamble imports for generated structured types.
+
+        Each class a send constructs is imported a second time under its
+        reserved payload alias, which the send renders against.
+        """
+        lines = types_import_lines(self.types_module, self.dataclasses.names())
+        if self.payload_constructors:
+            aliases = ", ".join(
+                f"{symbol} as {payload_constructor(symbol)}"
+                for symbol in sorted(self.payload_constructors)
+            )
+            lines.append(f"from {self.types_module} import {aliases}")
+        return lines
 
 
 def _enumeration_is_structured(
@@ -229,14 +285,19 @@ class SismicCodeGen(PythonCodeGen):
         port's connections in part-system mode, or is dropped (and recorded
         for a warning) when there is no part system to route it; a send
         directed ``to`` the machine's own port becomes sismic
-        ``send('<Event>'[, <field>=<expr>, ...])``, which dispatches the
-        signal to the machine itself as an internal event. The fields of
-        the constructed type become kwargs: first each constructor
-        argument, named by the field it binds, then each omitted field
-        with the value its type gives it, so the arguments are evaluated
-        once, at the send, in constructor order. An omitted field without
-        a value is not sent, and a type without fields sends the bare
-        event. The payload must be a typed
+        ``send('<Event>'[, _sysmlc_payload=_sysmlc_new_<Type>(<field>=<expr>,
+        ...)])``, which dispatches the signal to the machine itself as an
+        internal event. A type with fields, owned or inherited, travels as
+        one instance of its generated class under the dedicated event-data
+        key, so field names never meet Sismic's event attributes (``name``,
+        ``data``, ``delay``). The class is called through its reserved
+        preamble alias, so a model attribute named like the type cannot
+        shadow it. The class is constructed with first each
+        constructor argument, named by the field it binds, then each
+        omitted field with the value its type gives it, so the arguments
+        are evaluated once, at the send, in constructor order. An omitted
+        field without a value keeps the class's placeholder, and a type
+        without fields sends the bare event. The payload must be a typed
         ``new <Sig>(...)`` constructor; ``payload_signature`` rejects bare
         values.
 
@@ -259,9 +320,9 @@ class SismicCodeGen(PythonCodeGen):
                 expression shape the emitter rejects.
         """
         event_name, _arguments = payload_signature(send)
+        definition = constructed_payload_definition(send)
+        assert definition is not None
         if self._needs.catalog is not None:
-            definition = constructed_payload_definition(send)
-            assert definition is not None
             event_name = self._needs.catalog.channel_for(definition)
         if send.receiver_argument is not None and not send_receiver_is_own_port(
             send
@@ -273,9 +334,15 @@ class SismicCodeGen(PythonCodeGen):
                 "connect instead.",
                 node=send,
             )
-        kwargs = self.render_fields(
-            (field.name, field.value) for field in payload_fields(send)
-        )
+        kwargs = ""
+        if structured_fields(definition):
+            fields = self.render_fields(
+                (field.name, field.value) for field in payload_fields(send)
+            )
+            constructor = payload_constructor(
+                self._needs.dataclasses.symbol_for(definition)
+            )
+            kwargs = f"{PAYLOAD_DATA_KEY}={constructor}({fields})"
         delimiter = self._context.string_delimiter
         via_port = send_via_port(send)
         if via_port is not None:
@@ -298,9 +365,9 @@ class SismicCodeGen(PythonCodeGen):
         """Emit a bare reference, applying aliases and enum projection.
 
         A reference to the whole payload binding (``accept r : Reading`` then
-        an effect using ``r`` on its own) renders as sismic's runtime
-        ``event``, mirroring the field-access rewrite ``r.value`` ->
-        ``event.value``.
+        an effect using ``r`` on its own) renders as its configured alias,
+        the payload read from sismic's runtime ``event``, mirroring the
+        field-access rewrite ``r.value`` -> ``<alias>.value``.
 
         A reference to an enumeration literal renders as the literal's
         projected primitive value, never as a generated enum member; the

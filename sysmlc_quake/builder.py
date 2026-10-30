@@ -46,10 +46,13 @@ from sysmlc_quake.artifacts import (
     external_channel_names,
 )
 from sysmlc_quake.codegen import (
+    PAYLOAD_READER,
     TICK_METADATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
+    payload_constructor,
+    payload_reader_lines,
 )
 
 if TYPE_CHECKING:
@@ -120,10 +123,18 @@ class SismicBuilder:
       when the occurrence is rejected;
     - concrete signal channels expanded by resolved conformance, with positive
       same-source declaration priorities and one concrete event per send;
-    - the named-payload aliasing: a signal accepter that binds its payload
-      (``accept reading : Measurement``) renders references to that binding
-      against sismic's runtime ``event``, so ``reading.value`` becomes
-      ``event.value``;
+    - the payload envelope: a send of a type with fields carries one
+      generated-class instance, constructed through the class's reserved
+      ``_sysmlc_new_<Type>`` preamble alias, under the ``_sysmlc_payload``
+      event-data key, and a signal accepter that binds its payload
+      (``accept reading : Measurement``) renders references to that
+      binding through the preamble's ``_sysmlc_payload_of(event)`` reader,
+      so ``reading.value`` becomes ``_sysmlc_payload_of(event).value``.
+      Envelopes from generated sends and ``payload_event`` hold only model
+      data. Any other event, such as a marker or a low-level keyword-field
+      event, reads as a namespace of its raw ``event.data``; a raw
+      ``Event(..., delay=...)`` deliberately keeps that ``delay`` entry
+      there, while Sismic's ``name`` attribute never appears;
     - the capability rejections: non-inline ``do`` bodies, unstable
       self-loops, and model names starting with ``_``.
 
@@ -221,6 +232,11 @@ class SismicBuilder:
             # Assemble a scratch statechart first purely to record the calls;
             self._assemble(Statechart(name=self._name, preamble=""))
         imports = self._preamble_import_lines()
+        for symbol in sorted(self._needs.payload_constructors):
+            self._reject_imported(payload_constructor(symbol))
+        if self._reads_payload():
+            self._reject_imported(PAYLOAD_READER)
+            imports.extend(payload_reader_lines())
         if imports:
             self._preamble[0:0] = imports
         statechart = self._assemble(
@@ -279,6 +295,30 @@ class SismicBuilder:
         lines.extend(self._needs.external_import_lines())
         return lines
 
+    def _reads_payload(self) -> bool:
+        """Whether any signal accepter binds its payload to a name."""
+        return any(
+            isinstance(transition.trigger, SignalTrigger)
+            and transition.trigger.payload_feature is not None
+            for transition in self._transition_facts
+        )
+
+    def _reject_imported(self, name: str) -> None:
+        """Reject a generated preamble name that an import would shadow.
+
+        Raises:
+            UnsupportedConstructError: If a generated structured type or a
+                called external function is named ``name``.
+        """
+        imported = set(self._needs.dataclasses.names())
+        for names in self._needs.used_external.values():
+            imported.update(names)
+        if name in imported:
+            raise UnsupportedConstructError(
+                f"{name!r} is reserved for quake's generated preamble; "
+                "rename the structured type or external function using it."
+            )
+
     def _collect_sends(self) -> None:
         """Register every structured payload type constructed by a send."""
         slots: list[syside.ActionUsage | None] = []
@@ -304,6 +344,9 @@ class SismicBuilder:
                 # fields, owned or inherited, carry data need a class.
                 if structured_fields(definition):
                     self._register_dataclass(definition)
+                    self._needs.payload_constructors.add(
+                        self._needs.dataclasses.symbol_for(definition)
+                    )
 
     def _plan_triggers(self) -> None:
         """Plan the emitted machinery for time and change triggers.
@@ -711,7 +754,9 @@ class SismicBuilder:
         return SismicCodeGen(
             needs=self._needs,
             part_system_mode=self._part_system_mode,
-            feature_aliases=((trigger.payload_feature, "event"),),
+            feature_aliases=(
+                (trigger.payload_feature, f"{PAYLOAD_READER}(event)"),
+            ),
         )
 
     def _final_state(

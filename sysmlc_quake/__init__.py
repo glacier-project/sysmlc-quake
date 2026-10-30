@@ -2,10 +2,12 @@ from sysmlc.codegen.structured import GeneratedPythonModule
 
 from sysmlc_quake.artifacts import QuakeStatechartArtifact
 from sysmlc_quake.builder import build_statechart, build_statechart_artifact
-from sysmlc_quake.codegen import SismicCodeGen
+from sysmlc_quake.codegen import PAYLOAD_DATA_KEY, SismicCodeGen
+from sysmlc_quake.events import payload_event
 from sysmlc_quake.parts import QuakePartSystem, build_part_system
 
 __all__ = [
+    "PAYLOAD_DATA_KEY",
     "GeneratedPythonModule",
     "QuakePartSystem",
     "QuakeStatechartArtifact",
@@ -13,4 +15,5 @@ __all__ = [
     "build_part_system",
     "build_statechart",
     "build_statechart_artifact",
+    "payload_event",
 ]
