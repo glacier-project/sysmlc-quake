@@ -11,7 +11,11 @@ from sysmlc.codegen.python import (
     payload_fields,
     payload_signature,
 )
-from sysmlc.codegen.structured import DataclassRegistry, types_import_lines
+from sysmlc.codegen.structured import (
+    DataclassRegistry,
+    constructed_payload_definition,
+    types_import_lines,
+)
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.statemachine.interface import (
     send_receiver_is_own_port,
@@ -22,6 +26,7 @@ from sysmlc.sysml.queries import feature_value
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from sysmlc.semantics.statemachine.signals import SignalCatalog
     from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 
@@ -89,6 +94,7 @@ class QuakeRenderNeeds:
         types_module: str | None = None,
         dataclasses: DataclassRegistry | None = None,
         external: list[ForeignArtifact] | None = None,
+        catalog: SignalCatalog | None = None,
     ) -> None:
         """Initialize the registry.
 
@@ -99,11 +105,17 @@ class QuakeRenderNeeds:
                 of the same build, or None for a fresh one.
             external: Optional list of foreign artifacts for external
                 calc-def backing, registered on construction.
+            catalog: Frozen signal channels and generated definition symbols.
         """
+        self.catalog = catalog
         self.undeliverable_sends: set[tuple[str, str]] = set()
         self.types_module = types_module
         self.dataclasses = (
-            dataclasses if dataclasses is not None else DataclassRegistry()
+            dataclasses
+            if dataclasses is not None
+            else DataclassRegistry(
+                catalog.definition_symbols if catalog is not None else None
+            )
         )
         self.external = external or []
         self._used_external: dict[ForeignArtifact, set[str]] = {}
@@ -196,7 +208,15 @@ class SismicCodeGen(PythonCodeGen):
                 alias accidentally.
         """
         self._needs = needs if needs else QuakeRenderNeeds()
-        super().__init__(context, external=self._needs.external)
+        super().__init__(
+            context,
+            external=self._needs.external,
+            definition_symbols=(
+                self._needs.catalog.definition_symbols
+                if self._needs.catalog is not None
+                else None
+            ),
+        )
         self._used_external = self._needs.used_external
         self._part_system_mode = part_system_mode
         self._feature_aliases = tuple(feature_aliases)
@@ -239,6 +259,10 @@ class SismicCodeGen(PythonCodeGen):
                 expression shape the emitter rejects.
         """
         event_name, _arguments = payload_signature(send)
+        if self._needs.catalog is not None:
+            definition = constructed_payload_definition(send)
+            assert definition is not None
+            event_name = self._needs.catalog.channel_for(definition)
         if send.receiver_argument is not None and not send_receiver_is_own_port(
             send
         ):

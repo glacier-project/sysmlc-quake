@@ -24,7 +24,7 @@ Limitation callout. **Not yet**: not implemented.
 | bare `transition first A then B`                                     | **Done**        |                                                                                                                                            |
 | transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
-| `accept E` (signal) → `event`                                        | Done, to refine | delivery is by signal name; the accepter's `via` qualifier is not checked (in a part system the connection routes the signal)              |
+| `accept E` (signal) → `event`                                        | Done, to refine | concrete type channels support conforming subtypes; same-source competing signals use declaration order; accepter `via` is not checked     |
 | `if` guard → `guard`                                                 | **Done**        |                                                                                                                                            |
 | `accept reading : E` payload → `event.<field>`                       | **Done**        | field references and the whole payload occurrence alias to sismic's `event`                                                                |
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
@@ -882,12 +882,25 @@ In SysML, an **accepter** is an `accept E` clause between the transition's sourc
 (`first`) and target (`then`). It makes the transition **event-triggered**:
 where the eventless transition above fires on its own once the source completes,
 an accepter holds the transition until an incoming signal of the accepted
-**item/signal type** `E` arrives. It maps to sismic's `event` slot, named by that
-type, so the running machine leaves `idle` only when an event named `Tick` is
-delivered to it. Of the three accepter kinds, this is the one sismic represents
-natively: the `event` slot is consume-once by construction, so a delivered
-`Tick` fires at most one transition and is then gone, even when an `if` guard
-rejects it.
+**item/signal type** `E` arrives. One compile-scoped catalog records the loaded
+concrete application types and their resolved Syside conformance. Each typed
+accept expands to transitions for the concrete types satisfying all its type
+constraints. A send emits exactly one concrete channel, so a subtype can match
+a base accept without broadcasting ancestor events. Unrelated definitions with
+the same simple name retain distinct channels.
+
+For competing signal transitions from the same source, the first declaration
+whose type matches and guard is true wins. This deterministic declaration-order
+rule is the approved SysMLC profile policy, not a SysML requirement or a
+specificity rule. Copies of one original accept have equal positive Sismic
+priority; earlier originals have larger priority. The shared semantic
+owned-member declaration ordinal preserves this order across nested declaration
+scopes, even when the driver emits facts in a different traversal order.
+Manually supplied facts retain their supplied order for an entire same-source
+signal group when any member lacks a declaration ordinal. Source hierarchy and
+orthogonal-region selection still use Sismic's existing inner-first semantics.
+Eventless, completion, time and change encodings retain their existing priority.
+An occurrence rejected by every guard is consumed.
 
 ```sysml
 item def Tick;
@@ -912,7 +925,7 @@ statechart:
     states:
     - name: idle
       transitions:
-      - {event: Tick, target: running}
+      - {event: Tick, priority: 1, target: running}
     - {name: running}
 ```
 
@@ -923,8 +936,8 @@ raises the event on the **internal** queue (`send new Tick(...)` →
 `send("Tick")`, Section 4), so a machine can fire its own `accept` (a
 single-machine self-send). Internal events are processed before external ones.
 
-*Why:* the event is the **type** name (`Tick`), not the optional payload
-binding. Naming the payload (`accept reading : Tick`) and omitting the port
+Unambiguous types retain their simple channel names (`Tick`). The optional
+payload binding does not change type identity. Naming the payload (`accept reading : Tick`) and omitting the port
 (`accept Tick`) both still yield `event: Tick`: all three forms emit the same
 transition.
 
@@ -934,6 +947,21 @@ transition.
 > *which* machine receives the transfer (Section 5), and a single statechart
 > has nothing to route between. In both cases the accepter cannot distinguish
 > two same-named signals arriving over different ports.
+
+Build artifacts expose `qualified_channels` and `resolve_external(name)`.
+The resolver accepts qualified type names and unambiguous simple names, and
+rejects unknown or ambiguous names. The catalog includes loaded concrete
+subtypes used only by external inputs. For example,
+`interpreter.queue(artifact.resolve_external("Sensors::Reading"), value=41)`
+injects a typed channel; raw `interpreter.queue("Reading", value=41)` remains
+compatible for unambiguous names and remains an untyped low-level interface.
+Payload fields remain flat event keyword arguments. Transport metadata field
+collisions are outside this mapping's supported repair scope.
+
+A composed system shares one catalog across its machines, generated classes
+and routing. Connections deliver the concrete channel only to compatible peers,
+once per target even when base and subtype accepts overlap. Existing fan-in
+and bidirectional restrictions still apply.
 
 Reading that payload binding in a guard or effect (`accept reading : Reading`
 then `if reading.value > 0.5`) **is** supported: the reference emits as
@@ -1143,8 +1171,9 @@ mechanism and one story.
 
 > ⚠️ **Reserved names:** the underscore namespace belongs to the generated
 > machinery (the `_tick_*` events and `_n_*` counters here, the `_w_*` flags
-> in 3.6). A model attribute or signal whose name starts with `_` is rejected
-> fail-loud.
+> in 3.6). A model attribute whose name starts with `_` is rejected.
+> User signal names beginning with `_` receive encoded concrete channels,
+> preventing a generated timer from satisfying an unrelated user accept.
 
 ### 3.5 `accept at <instant>` → one-shot delayed event
 
