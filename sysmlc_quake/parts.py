@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from sysmlc.codegen.structured import (
@@ -13,11 +13,18 @@ from sysmlc.codegen.structured import (
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.semantics.parts.graph import PartGraph, part_graph
 from sysmlc.semantics.parts.routing import PortSignalRoute, validated_routes
+from sysmlc.semantics.statemachine.signals import SignalCatalog
 
+from sysmlc_quake.artifacts import (
+    external_channel_names,
+    resolve_external_channel,
+)
 from sysmlc_quake.builder import build_statechart_with_needs
 from sysmlc_quake.codegen import QuakeRenderNeeds
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import syside
     from sismic.model import Statechart
     from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
@@ -38,6 +45,18 @@ class QuakePartSystem:
     statecharts: dict[str, Statechart]
     routes: tuple[PortSignalRoute, ...]
     types_module: GeneratedPythonModule | None = None
+    qualified_channels: Mapping[str, str] = field(default_factory=dict)
+    external_names: Mapping[str, str] = field(default_factory=dict)
+
+    def resolve_external(self, name: str) -> str:
+        """Resolve a qualified or unambiguous input type name.
+
+        Raises:
+            ValueError: If the name is unknown or ambiguous.
+        """
+        return resolve_external_channel(
+            name, self.qualified_channels, self.external_names
+        )
 
 
 def build_part_system(
@@ -83,10 +102,13 @@ def build_part_system(
                 "exactly one exhibit per part"
             )
 
-    _, routes = validated_routes(model, graph, graph.parts)
+    catalog = SignalCatalog(
+        model, [node.behaviors[0][1] for node in graph.parts]
+    )
+    _, routes = validated_routes(model, graph, graph.parts, catalog=catalog)
 
     module_name = types_module_name(usage_qn)
-    shared_types = DataclassRegistry()
+    shared_types = DataclassRegistry(catalog.definition_symbols)
     built_behaviors: dict[str, Statechart] = {}
     statecharts: dict[str, Statechart] = {}
     for node in graph.parts:
@@ -98,6 +120,7 @@ def build_part_system(
                 types_module=module_name,
                 dataclasses=shared_types,
                 external=external,
+                catalog=catalog,
             )
             built_behaviors[behavior_qn] = build_statechart_with_needs(
                 model,
@@ -112,6 +135,8 @@ def build_part_system(
         graph=graph,
         statecharts=statecharts,
         routes=routes,
+        qualified_channels=dict(catalog.qualified_channels),
+        external_names=external_channel_names(catalog),
         types_module=GeneratedPythonModule.from_registry(
             module_name, shared_types
         ),

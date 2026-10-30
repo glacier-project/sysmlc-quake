@@ -271,16 +271,21 @@ def test_nested_composites_register_every_dataclass(tmp_path: Path) -> None:
     assert box.inner.z == 0.25
 
 
-def test_distinct_qualified_types_cannot_share_a_python_name(
+def test_distinct_qualified_types_have_distinct_runtime_classes(
     tmp_path: Path,
 ) -> None:
     model = _load_inline_model(tmp_path, COLLIDING_TYPES_MODEL)
 
-    with pytest.raises(
-        UnsupportedConstructError,
-        match="two structured types share the simple name 'Data'",
-    ):
-        build_statechart_artifact(model, "TypeCollision::Machine")
+    artifact = build_statechart_artifact(model, "TypeCollision::Machine")
+    assert artifact.types_module is not None
+    artifact.types_module.install()
+    interpreter = Interpreter(artifact.statechart)
+    interpreter.execute()
+    left = interpreter.context["left"]
+    right = interpreter.context["right"]
+    assert type(left) is not type(right)
+    assert left.x == 1.0
+    assert right.label == "right"
 
 
 def test_field_bound_to_a_call_is_an_unsupported_bound_expression(

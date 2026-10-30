@@ -105,8 +105,12 @@ class PartSystemCoordinator:
             named ``signal`` or ``port`` passes through ``payload`` instead
             of clashing with them.
             """
-            for edge in self._routes.get((source, port, signal), ()):
-                self._interpreters[edge.target].queue(signal, **payload)
+            targets = {
+                edge.target
+                for edge in self._routes.get((source, port, signal), ())
+            }
+            for target in sorted(targets):
+                self._interpreters[target].queue(signal, **payload)
 
         return route
 

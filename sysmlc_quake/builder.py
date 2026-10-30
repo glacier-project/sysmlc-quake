@@ -37,9 +37,14 @@ from sysmlc.semantics.statemachine.facts import (
     Trigger,
     WhenTrigger,
 )
+from sysmlc.semantics.statemachine.signals import SignalCatalog
 from sysmlc.sysml.queries import structured_fields
 
-from sysmlc_quake.artifacts import QuakeInvariant, QuakeStatechartArtifact
+from sysmlc_quake.artifacts import (
+    QuakeInvariant,
+    QuakeStatechartArtifact,
+    external_channel_names,
+)
 from sysmlc_quake.codegen import (
     TICK_METADATA_KEY,
     QuakeRenderNeeds,
@@ -113,6 +118,8 @@ class SismicBuilder:
       guarded by the flag and the condition, and, with an ``if`` guard, a
       negative-priority internal consumer transition that disarms the flag
       when the occurrence is rejected;
+    - concrete signal channels expanded by resolved conformance, with positive
+      same-source declaration priorities and one concrete event per send;
     - the named-payload aliasing: a signal accepter that binds its payload
       (``accept reading : Measurement``) renders references to that binding
       against sismic's runtime ``event``, so ``reading.value`` becomes
@@ -235,12 +242,32 @@ class SismicBuilder:
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
+        signal_sources: dict[str, list[int]] = {}
+        for index, transition in enumerate(self._transition_facts):
+            if isinstance(transition.trigger, SignalTrigger):
+                signal_sources.setdefault(transition.source, []).append(index)
+        priorities: dict[int, int] = {}
+        for indices in signal_sources.values():
+            orders = [
+                self._transition_facts[index].declaration_order
+                for index in indices
+            ]
+            if all(order is not None for order in orders):
+                indices = [
+                    index
+                    for _, index in sorted(zip(orders, indices, strict=True))
+                ]
+            priorities.update(
+                (index, len(indices) - rank)
+                for rank, index in enumerate(indices)
+            )
         for index, transition in enumerate(self._transition_facts):
             self._emit_transition(
                 statechart,
                 transition,
                 self._planned_triggers.get(index),
                 done_finals,
+                priority=priorities.get(index, 0),
             )
         statechart.validate()
         return statechart
@@ -535,6 +562,8 @@ class SismicBuilder:
         transition: TransitionFact,
         plan: _TimeTriggerPlan | _ChangeTriggerPlan | None,
         done_finals: set[str],
+        *,
+        priority: int,
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -550,15 +579,27 @@ class SismicBuilder:
             self._emit_change_transitions(statechart, transition, plan, target)
             return
         codegen = self._transition_codegen(transition)
-        statechart.add_transition(
-            Transition(
-                source=transition.source,
-                target=target,
-                event=self._event(transition.trigger, plan),
-                guard=self._guard(transition, plan, codegen),
-                action=self._statements(transition.effect, codegen),
+        trigger = transition.trigger
+        if (
+            isinstance(trigger, SignalTrigger)
+            and self._needs.catalog is not None
+        ):
+            events = sorted(self._needs.catalog.matching_channels(trigger))
+        else:
+            events = [self._event(trigger, plan)]
+        for event in events:
+            statechart.add_transition(
+                Transition(
+                    source=transition.source,
+                    target=target,
+                    event=event,
+                    guard=self._guard(transition, plan, codegen),
+                    action=self._statements(transition.effect, codegen),
+                    priority=priority
+                    if isinstance(trigger, SignalTrigger)
+                    else 0,
+                )
             )
-        )
 
     def _emit_change_transitions(
         self,
@@ -720,7 +761,10 @@ def build_statechart_artifact(
 ) -> QuakeStatechartArtifact:
     """Build a statechart together with its generated support module."""
     module_name = types_module_name(state_def_qn)
-    needs = QuakeRenderNeeds(types_module=module_name, external=external)
+    catalog = SignalCatalog(model, [state_def_qn])
+    needs = QuakeRenderNeeds(
+        types_module=module_name, external=external, catalog=catalog
+    )
     builder = SismicBuilder(
         state_def_qn.split("::")[-1],
         needs=needs,
@@ -736,6 +780,8 @@ def build_statechart_artifact(
             module_name, needs.dataclasses
         ),
         invariants=builder.invariants,
+        qualified_channels=dict(catalog.qualified_channels),
+        external_names=external_channel_names(catalog),
     )
 
 
