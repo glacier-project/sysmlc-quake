@@ -25,7 +25,7 @@ Limitation callout. **Not yet**: not implemented.
 | transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
 | transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
 | `accept E` (signal) → `event`                                        | Done, to refine | concrete type channels support conforming subtypes; same-source competing signals use declaration order; accepter `via` is not checked     |
-| `if` guard → `guard`                                                 | **Done**        |                                                                                                                                            |
+| `if` guard → `guard`                                                 | **Done**        | same-source competing eventless transitions use declaration order, except at a source that also has an `accept when`                       |
 | `accept reading : E` payload → `_sysmlc_payload_of(event)`           | **Done**        | field references and the whole payload read the generated payload object carried in the event's dedicated data key                         |
 | `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
 | `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                  |
@@ -898,8 +898,9 @@ scopes, even when the driver emits facts in a different traversal order.
 Manually supplied facts retain their supplied order for an entire same-source
 signal group when any member lacks a declaration ordinal. Source hierarchy and
 orthogonal-region selection still use Sismic's existing inner-first semantics.
-Eventless, completion, time and change encodings retain their existing priority.
-An occurrence rejected by every guard is consumed.
+Competing eventless transitions follow the separate rule in Section 3.3; time
+and change encodings retain their existing priority. An occurrence rejected by
+every guard is consumed.
 
 ```sysml
 item def Tick;
@@ -1013,6 +1014,49 @@ statechart:
 *Why:* the guard is **re-evaluated at every macro step** while the source is
 active: false only means "not yet". With no accepter there is nothing to
 consume, so this matches SysML's untriggered-transition rule exactly.
+
+When several eventless transitions leave the same source, the first declaration
+whose guard is true wins: false guards are skipped, and exactly one source exit
+and one effect run. A guardless transition is always eligible; it is not an
+`else` branch, so a true guarded transition declared before it still wins, and
+reversing the declarations reverses the winner. Each source of an automatic
+chain chooses this way independently. This deterministic declaration-order rule
+is the approved SysMLC profile policy; SysML selects one outgoing transition but
+mandates no priority among eligible ones. Earlier declarations get larger
+Sismic priorities, the last keeping the default. The ordering uses the same
+owned-member declaration ordinal as signal transitions (Section 3.2), including
+across nested declaration scopes; manually supplied facts retain their supplied
+order when any member of the group lacks an ordinal. Hierarchy and
+orthogonal-region selection keep Sismic's inner-first semantics.
+
+```sysml
+state def Machine {
+    attribute go : Boolean := true;
+    entry;
+        then idle;
+    state idle;
+    state running;
+    state stopped;
+
+    transition first idle if go then running;
+    transition first idle then stopped;
+}
+```
+
+```yaml
+    - name: idle
+      transitions:
+      - {guard: go, priority: high, target: running}
+      - {target: stopped}
+```
+
+> ⚠️ **Limitation:** at a source that also has an `accept when` transition,
+> whose real transition is eventless as well (Section 3.6), ordinary
+> triggerless transitions and the real change transition keep their existing
+> default priority, and the change consumers keep their negative priorities.
+> Signal transitions at that source are ranked as usual. Two default-priority
+> eventless transitions enabled in the same step still raise
+> `NonDeterminismError`: no mixed eventless/change rule is chosen.
 
 ### 3.4 `accept after <duration>` → one-shot delayed event
 
@@ -1371,9 +1415,10 @@ consumption. An internal transition fires its action while staying put.
 *Why the real transition keeps the default priority:* two transitions enabled
 from one source in the same step is, in SysML, a genuine ambiguity (7.18.3
 mandates no priority between transitions). Leaving the real transitions at the
-default priority lets sismic raise `NonDeterminismError` on such a model,
-exactly as it would for two plain `if` transitions: the generator does not
-silently invent an order. Only the consumers are pushed out of the way, to
+default priority lets sismic raise `NonDeterminismError` on such a model: the
+generator does not silently invent an order. The declaration-order rule for
+plain eventless transitions (Section 3.3) is therefore not applied at a source
+that has an `accept when`. Only the consumers are pushed out of the way, to
 distinct negative priorities so two rejected observations never collide with
 each other. One tie is decided structurally rather than by us: a `when` and a
 time trigger due at the same instant resolve **when-first**, because eventless

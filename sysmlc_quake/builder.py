@@ -123,6 +123,11 @@ class SismicBuilder:
       when the occurrence is rejected;
     - concrete signal channels expanded by resolved conformance, with positive
       same-source declaration priorities and one concrete event per send;
+    - same-source triggerless transitions ranked by declaration order, so the
+      first one whose guard holds fires; at a source that also has an
+      ``accept when``, ordinary triggerless and real change transitions
+      keep their existing default priority and the change consumers keep
+      their negative priorities;
     - the payload envelope: a send of a type with fields carries one
       generated-class instance, constructed through the class's reserved
       ``_sysmlc_new_<Type>`` preamble alias, under the ``_sysmlc_payload``
@@ -258,12 +263,24 @@ class SismicBuilder:
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
-        signal_sources: dict[str, list[int]] = {}
+        # A change trigger's real transition is eventless at the default
+        # priority too; ranking plain eventless transitions above it would
+        # decide a mixed-trigger competition, so triggerless transitions at
+        # such sources are not ranked; their signal ranking is unaffected.
+        when_sources = {
+            transition.source
+            for transition in self._transition_facts
+            if isinstance(transition.trigger, WhenTrigger)
+        }
+        groups: dict[tuple[str, bool], list[int]] = {}
         for index, transition in enumerate(self._transition_facts):
-            if isinstance(transition.trigger, SignalTrigger):
-                signal_sources.setdefault(transition.source, []).append(index)
+            trigger = transition.trigger
+            if isinstance(trigger, SignalTrigger):
+                groups.setdefault((transition.source, True), []).append(index)
+            elif trigger is None and transition.source not in when_sources:
+                groups.setdefault((transition.source, False), []).append(index)
         priorities: dict[int, int] = {}
-        for indices in signal_sources.values():
+        for (_, is_signal), indices in groups.items():
             orders = [
                 self._transition_facts[index].declaration_order
                 for index in indices
@@ -273,8 +290,11 @@ class SismicBuilder:
                     index
                     for _, index in sorted(zip(orders, indices, strict=True))
                 ]
+            # Eventless ranks end at the default priority, so a lone
+            # eventless transition keeps its default serialized form.
+            lowest = 1 if is_signal else 0
             priorities.update(
-                (index, len(indices) - rank)
+                (index, len(indices) - 1 - rank + lowest)
                 for rank, index in enumerate(indices)
             )
         for index, transition in enumerate(self._transition_facts):
@@ -638,9 +658,7 @@ class SismicBuilder:
                     event=event,
                     guard=self._guard(transition, plan, codegen),
                     action=self._statements(transition.effect, codegen),
-                    priority=priority
-                    if isinstance(trigger, SignalTrigger)
-                    else 0,
+                    priority=priority,
                 )
             )
 
