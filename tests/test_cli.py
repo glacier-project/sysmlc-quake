@@ -279,8 +279,8 @@ package Nondet {
         state idle;
         state left;
         state right;
-        transition first idle if x > 0 then left;
-        transition first idle if x < 2 then right;
+        transition first idle accept when x > 0 then left;
+        transition first idle accept when x < 2 then right;
     }
 }
 """

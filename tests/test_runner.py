@@ -188,8 +188,8 @@ package RunNondet {
         state idle;
         state left;
         state right;
-        transition first idle if x > 0 then left;
-        transition first idle if x < 2 then right;
+        transition first idle accept when x > 0 then left;
+        transition first idle accept when x < 2 then right;
     }
 }
 """
@@ -224,8 +224,9 @@ package PartIncomplete {
 
 
 def test_run_state_def_wraps_nondeterminism(tmp_path: Path) -> None:
-    # Both guards are true at once; quake deliberately preserves the
-    # nondeterminism and sismic rejects it at runtime.
+    # Both change conditions hold at once; change transitions are not
+    # ranked by declaration order, so the conflict reaches sismic, which
+    # rejects it at runtime.
     model = _load_inline_model(tmp_path, NONDETERMINISTIC_MODEL)
 
     with pytest.raises(ExecutionError, match=r"[Nn]on-determinis"):
