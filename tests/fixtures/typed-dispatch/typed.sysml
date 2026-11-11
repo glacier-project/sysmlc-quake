@@ -136,7 +136,7 @@ package TypedDispatch {
         part source : Source;
         part compatible : Compatible;
         part unrelated : Unrelated;
-        connect source.tx to compatible.rx;
-        connect source.tx to unrelated.rx;
+        interface source.tx to compatible.rx;
+        interface source.tx to unrelated.rx;
     }
 }

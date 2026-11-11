@@ -43,7 +43,7 @@ Limitation callout. **Not yet**: not implemented.
 | exhibit / entry point                                                | Not yet         | selecting an exhibited state usage as the build element; part systems already resolve each part def's exhibit (Section 5)                  |
 | submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content                         |
 | ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                                   |
-| part systems (multi-machine)                                         | **Done**        | one interpreter per part instance on a shared clock; `connect` routes `via` sends point-to-point (Section 5)                               |
+| part systems (multi-machine)                                         | **Done**        | one interpreter per part instance on a shared clock; `interface` routes `via` sends point-to-point (Section 5)                               |
 
 ## How to read this
 
@@ -943,7 +943,7 @@ transition.
 
 > ⚠️ **Limitation:** the accepter's `via commPort` qualifier is **dropped**;
 > events match by name alone. A port only matters for routing on the sender's
-> side: in a part system the sender's `via` port and the `connect` decide
+> side: in a part system the sender's `via` port and the `interface` decide
 > *which* machine receives the transfer (Section 5), and a single statechart
 > has nothing to route between. In both cases the accepter cannot distinguish
 > two same-named signals arriving over different ports.
@@ -1778,7 +1778,7 @@ the sender's connections); KerML 8.3.4.8.7 (instantiation argument binding)*
 In SysML, `send new Sig(args)` emits a signal, and its delivery follows the
 receiver: `send ... to <own port>` targets the machine's own port, modeling a
 **single-machine self-send**; `send ... via <port>` names the port as the
-*sender*, so the transfer is delivered over the port's connections. As a
+*sender*, so the transfer is delivered over the port's interfaces. As a
 transition effect the self-send becomes a sismic `send(...)` call in the
 transition's `action`; in a state's `entry`/`exit`/`do` body the same call
 lands in `on entry`/`on exit`. Here the machine that sends then accepts its
@@ -1850,11 +1850,10 @@ so it matches by type and ignores the payload.
 
 > ⚠️ **Boundary:** a **`via` send is never delivered in a single statechart**.
 > Per the spec, `via` names the *sender* port and the receiver is determined
-> by the port's connections (the `Ports` library: "transfers outgoing from a
-> Port are always targeted to a Port connected to the original Port"); with
-> no part system there is no connection, so the statement is dropped from the
-> emitted action and the build logs a warning. In a part system the same send
-> is routed over the `connect` (see the part-system chapter). A `to` receiver
+> by the port's interfaces (`Ports` and `Interfaces` library semantics). With
+> no part system there is no interface peer, so the statement is dropped
+> from the emitted action and the build logs a warning. In a part system the same send
+> is routed over the `interface` (see the part-system chapter). A `to` receiver
 > must be the machine's own port; any other receiver (cross-machine `to`
 > addressing, as in the official corpus's `send new OverTemp() to controller`) is rejected fail-loud rather than mistranslated to a
 > self-send.
@@ -2031,13 +2030,13 @@ ______________________________________________________________________
 
 *Corpus: `part01-two-parts`*
 
-*Spec: SysML 7.11 (parts), 7.12 (ports), 7.13 (connections), 7.18.2
+*Spec: SysML 7.11 (parts), 7.12 (ports), 7.14 (interfaces), 7.18.2
 (exhibited states), 7.17.7 (send action usages)*
 
 Everything above maps one `state def` to one statechart. A **part system**
 lifts that to several machines running together: a top-level `part` usage
 composes part instances, each typed by a `part def` that exhibits exactly one
-state, and `connect` wires their ports.
+state, and `interface` connects their ports for event transport.
 
 ```sysml
 part def Plant  { port commPort; exhibit state : PlantBehavior; }
@@ -2046,7 +2045,7 @@ part def Tester { port commPort; exhibit state : TesterBehavior; }
 part pingSystem {
     part plant : Plant;
     part tb : Tester;
-    connect plant.commPort to tb.commPort;
+    interface plant.commPort to tb.commPort;
 }
 ```
 
@@ -2099,10 +2098,16 @@ pingSystem/
 }
 ```
 
-Each route is derived from a `connect` and one side's sends: a signal sent
-`via` a connected port is deliverable to the peer instance on the other end.
-Routing is validated at build; a `via` send over a port with no connection
-inside a part system is a build warning naming the signal and port.
+Each route is derived from an interface and one side's sends: a signal sent
+`via` an interface port is deliverable to the peer instance on the other end.
+Interface-typed connections also qualify; generic structural connections do
+not establish event transport. Routing is validated at build. A `via` send
+over a port with no interface peer inside a part system produces a diagnostic
+naming the signal and port.
+
+The current implementation delivers to every compatible interface peer when
+several peers exist. This fan-out is an extension, not the SysML rule for
+selecting one target of an outgoing transfer.
 
 ### 5.2 `send ... via port` → injected router call
 
@@ -2132,8 +2137,8 @@ the sender. Two usages exhibiting the same behavior share one statechart
 object; the routing stays per instance.
 
 *Why:* per the spec, `via` names the **sender** occurrence and the receiver
-must be determined from the model's connections, so delivery follows the
-`connect`, and a send without a determinable receiver must not silently
+must be determined from the model's interfaces, so delivery follows the
+`interface`, and a send without a determinable receiver must not silently
 become a self-event.
 
 ### 5.3 `sysmlc quake run` → coordinated execution on a shared clock
@@ -2173,12 +2178,13 @@ the CLI imports the module and starts execution (Section 4.6).
 > ⚠️ **Boundary:** a part system requires uniquely named part usages and
 > exactly one exhibited state per part def; multi-exhibit parts (and the rig
 > composition built on them) are rejected. A rig is expressible as a part
-> system: give each machine a part def with a port and `connect` the two.
+> system: give each machine a part def with a port and an `interface`
+> between the two.
 > Cross-machine `send ... to <receiver>` stays rejected (Section 4.5); route
-> the signal with `via` and a `connect` instead. `--values` is not supported
+> the signal with `via` and an `interface` instead. `--values` is not supported
 > with part systems yet.
 
 > ⚠️ **Limitation:** delivery is keyed by **signal name** over the port's
-> connections; the accepter's own `via` qualifier is not checked, so two
+> interfaces; the accepter's own `via` qualifier is not checked, so two
 > same-named signals arriving over different connected ports of one machine
 > are not distinguishable by port.

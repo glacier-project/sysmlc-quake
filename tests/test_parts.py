@@ -233,7 +233,7 @@ package PartPayload {
     part sys {
         part tx : Sender;
         part rx : Receiver;
-        connect tx.outPort to rx.rxPort;
+        interface tx.outPort to rx.rxPort;
     }
 }
 """
@@ -294,7 +294,7 @@ package PartStale {
     part sys {
         part driver : Driver;
         part sleeper : Sleeper;
-        connect driver.outPort to sleeper.rxPort;
+        interface driver.outPort to sleeper.rxPort;
     }
 }
 """
@@ -382,7 +382,7 @@ package PartAbandon {
     part sys {
         part k : Kicker;
         part s : Sleeper;
-        connect k.outPort to s.rxPort;
+        interface k.outPort to s.rxPort;
     }
 }
 """
@@ -449,7 +449,7 @@ package PartRestart {
     part sys {
         part k : Kicker;
         part w : Watch;
-        connect k.outPort to w.rxPort;
+        interface k.outPort to w.rxPort;
     }
 }
 """

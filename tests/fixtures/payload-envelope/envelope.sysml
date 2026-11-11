@@ -183,6 +183,6 @@ package PayloadEnvelope {
     part peerSystem {
         part tx : PeerSender;
         part rx : PeerReceiver;
-        connect tx.outPort to rx.rxPort;
+        interface tx.outPort to rx.rxPort;
     }
 }
