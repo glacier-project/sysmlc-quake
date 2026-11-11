@@ -282,7 +282,7 @@ class SismicCodeGen(PythonCodeGen):
         """Translate a send action by its receiver semantics.
 
         The receiver decides the outcome: a ``via`` send routes over the
-        port's connections in part-system mode, or is dropped (and recorded
+        port's interfaces in part-system mode, or is dropped (and recorded
         for a warning) when there is no part system to route it; a send
         directed ``to`` the machine's own port becomes sismic
         ``send('<Event>'[, _sysmlc_payload=_sysmlc_new_<Type>(<field>=<expr>,
@@ -330,8 +330,8 @@ class SismicCodeGen(PythonCodeGen):
             raise UnsupportedConstructError(
                 f"send {event_name!r} addresses a receiver that is not the "
                 "machine's own port; cross-machine 'to' addressing is not "
-                "supported. Route the signal with 'via <port>' and a "
-                "connect instead.",
+                "supported. Route the signal with 'via <port>' and an "
+                "interface instead.",
                 node=send,
             )
         kwargs = ""

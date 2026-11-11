@@ -150,7 +150,7 @@ package TypedPart {
     part system {
         part tx : Sender;
         part rx : Receiver;
-        connect tx.outPort to rx.inPort;
+        interface tx.outPort to rx.inPort;
     }
 }
 """
