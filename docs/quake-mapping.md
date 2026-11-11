@@ -43,7 +43,7 @@ Limitation callout. **Not yet**: not implemented.
 | exhibit / entry point                                                | Not yet         | selecting an exhibited state usage as the build element; part systems already resolve each part def's exhibit (Section 5)                  |
 | submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content                         |
 | ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                                   |
-| part systems (multi-machine)                                         | **Done**        | one interpreter per part instance on a shared clock; `interface` routes `via` sends point-to-point (Section 5)                               |
+| part systems (multi-machine)                                         | **Done**        | one interpreter per part instance on a shared clock; `interface` routes `via` sends point-to-point (Section 5)                             |
 
 ## How to read this
 
