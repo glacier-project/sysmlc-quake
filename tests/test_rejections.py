@@ -72,3 +72,40 @@ def test_structured_enum_literal_is_rejected(model: syside.Model) -> None:
     """A structured enum literal has no single primitive projection."""
     with pytest.raises(UnsupportedConstructError, match="is structured"):
         build_statechart(model, "Rejections::MachineStructuredEnum")
+
+
+@pytest.mark.parametrize(
+    ("machine_qn", "message"),
+    [
+        ("Rejections::MachineEntryReference", "`entry` action that references"),
+        ("Rejections::MachineExitReference", "`exit` action that references"),
+        ("Rejections::MachineEffectReference", "effect that references"),
+        (
+            "Rejections::MachineStandaloneSuccession",
+            "standalone `first A then B;` succession",
+        ),
+        ("Rejections::MachineSubmachineUsage", "submachine reuse"),
+        ("Rejections::MachineRootNamedState", "name of its state definition"),
+        ("Rejections::MachineUnderscoreState", "starts with an underscore"),
+        ("Rejections::MachineShadowsMax", "shadow the builtin"),
+        (
+            "Rejections::MachineTransitionConstraint",
+            "asserted constraint in a transition body",
+        ),
+    ],
+)
+def test_unmapped_construct_is_rejected_not_dropped(
+    model: syside.Model, machine_qn: str, message: str
+) -> None:
+    """Constructs without a mapping fail loudly instead of vanishing."""
+    with pytest.raises(UnsupportedConstructError, match=message):
+        build_statechart(model, machine_qn)
+
+
+def test_c_only_textual_representation_names_its_cause() -> None:
+    """A calc def with only a C representation cannot run in quake."""
+    from tests.test_parts import MULTI
+
+    model = load_model(MULTI.parent / "sm15-rep-c")
+    with pytest.raises(UnsupportedConstructError, match="only C textual"):
+        build_statechart(model, "SM15RepC::Ramp")

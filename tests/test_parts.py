@@ -79,10 +79,16 @@ def test_single_channel_fan_in_is_rejected() -> None:
         build_part_system(model, "PartFanin::sys")
 
 
-def test_multi_exhibit_part_is_rejected() -> None:
-    model = load_model(MULTI)
-    with pytest.raises(UnsupportedConstructError, match="exactly one exhibit"):
-        build_part_system(model, "PartMulti::sys")
+def test_multi_exhibit_part_runs_its_exhibits_as_a_rig() -> None:
+    """Each exhibit is its own machine; signals cross by name."""
+    system = build_part_system(load_model(MULTI), "PartMulti::sys")
+    assert system.types_module is None or system.types_module.install()
+    assert sorted(system.statecharts) == ["rig.plant", "rig.tb"]
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run(max_steps=50)
+
+    assert coordinator.interpreters["rig.tb"].final
 
 
 def test_coordinator_routes_without_sender_self_copy() -> None:
@@ -493,3 +499,84 @@ def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
         if entry.instance == "sleeper" and entry.step.time > 0
     ]
     assert sleeper_steps_after_zero == []
+
+
+ACCEPT_VIA_MODEL = """
+package PartAcceptVia {
+    item def Go;
+
+    state def SenderBehavior {
+        port outPort;
+        entry; then ready;
+        state ready;
+        transition first ready do send new Go() via outPort then done;
+    }
+    state def ReceiverBehavior {
+        port rxA;
+        port rxB;
+        entry; then waiting;
+        state waiting;
+        state wrong;
+        state right;
+        transition first waiting accept Go via rxB then wrong;
+        transition first waiting accept Go via rxA then right;
+    }
+
+    part def Sender { port outPort; exhibit state : SenderBehavior; }
+    part def Receiver {
+        port rxA;
+        port rxB;
+        exhibit state : ReceiverBehavior;
+    }
+
+    part sys {
+        part tx : Sender;
+        part rx : Receiver;
+        interface tx.outPort to rx.rxA;
+    }
+}
+"""
+
+
+def test_accepter_via_port_selects_the_receiving_port(tmp_path: Path) -> None:
+    """A signal delivered on ``rxA`` fires only the ``via rxA`` accepter."""
+    model = _load_inline_model(tmp_path, ACCEPT_VIA_MODEL)
+    system = build_part_system(model, "PartAcceptVia::sys")
+    if system.types_module is not None:
+        system.types_module.install()
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run(max_steps=20)
+
+    configuration = coordinator.interpreters["rx"].configuration
+    assert "right" in configuration
+    assert "wrong" not in configuration
+
+
+TWICE_MODEL = """
+package PartTwice {
+    item def Go;
+
+    state def B {
+        port p;
+        entry; then idle;
+        state idle;
+        transition first idle accept Go via p then done;
+    }
+
+    part def Rig {
+        exhibit state a : B;
+        exhibit state b : B;
+    }
+
+    part sys { part rig : Rig; }
+}
+"""
+
+
+def test_multi_exhibit_part_rejects_the_same_state_def_twice(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, TWICE_MODEL)
+    with pytest.raises(UnsupportedConstructError, match="same state def"):
+        build_part_system(model, "PartTwice::sys")

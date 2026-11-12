@@ -13,9 +13,8 @@ from sismic.model import (
     Statechart,
     Transition,
 )
-from sysmlc.codegen.python import join_statements
+from sysmlc.codegen.python import LIBRARY_FUNCTIONS, join_statements
 from sysmlc.codegen.structured import (
-    GeneratedPythonModule,
     constructed_payload_definition,
     register_dataclass,
     types_module_name,
@@ -38,7 +37,7 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 from sysmlc.semantics.statemachine.signals import SignalCatalog
-from sysmlc.sysml.queries import structured_fields
+from sysmlc.sysml.queries import resolve, structured_fields
 
 from sysmlc_quake.artifacts import (
     QuakeInvariant,
@@ -48,11 +47,13 @@ from sysmlc_quake.artifacts import (
 from sysmlc_quake.codegen import (
     PAYLOAD_READER,
     TICK_METADATA_KEY,
+    VIA_DATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
     payload_constructor,
     payload_reader_lines,
+    types_module_for,
 )
 
 if TYPE_CHECKING:
@@ -198,6 +199,11 @@ class SismicBuilder:
                 f"attribute {binding.name!r} starts with an underscore; "
                 "that namespace is reserved for the generated machinery. "
             )
+        if binding.name in _SHADOWED_BUILTINS:
+            raise UnsupportedConstructError(
+                f"attribute {binding.name!r} would shadow the builtin "
+                "that the library-function mapping renders to; rename it."
+            )
         if binding.name in self._seen_attrs:
             first = self._seen_attrs[binding.name]
             raise UnsupportedConstructError(
@@ -221,7 +227,25 @@ class SismicBuilder:
         return tuple(self._invariants)
 
     def add_state(self, state: StateFact) -> None:
-        """Buffer a state fact (emitted in :meth:`result`)."""
+        """Buffer a state fact (emitted in :meth:`result`).
+
+        Raises:
+            UnsupportedConstructError: If the state is named like the
+                machine's root state (sismic keys states by name), or a
+                segment of its name starts with the reserved ``_`` prefix.
+        """
+        if state.name == self._name and state.parent is not None:
+            raise UnsupportedConstructError(
+                f"state {state.name!r} has the name of its state "
+                "definition; sismic names the root state after the "
+                "definition, so rename the state."
+            )
+        if any(segment.startswith("_") for segment in state.name.split("::")):
+            raise UnsupportedConstructError(
+                f"state {state.name!r} starts with an underscore; that "
+                "namespace is reserved for the generated machinery; rename "
+                "the state."
+            )
         self._state_facts.append(state)
 
     def add_transition(self, transition: TransitionFact) -> None:
@@ -263,24 +287,37 @@ class SismicBuilder:
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
-        # A change trigger's real transition is eventless at the default
-        # priority too; ranking plain eventless transitions above it would
-        # decide a mixed-trigger competition, so triggerless transitions at
-        # such sources are not ranked; their signal ranking is unaffected.
+        # A change trigger's real transition is eventless too, so it ranks
+        # with the guarded eventless transitions of its source: one group,
+        # ordered by declaration. An unguarded triggerless sibling at such a
+        # source stays unranked (it is always enabled, so ranking it would
+        # decide a competition the model never states); its signal ranking
+        # is unaffected.
         when_sources = {
             transition.source
             for transition in self._transition_facts
             if isinstance(transition.trigger, WhenTrigger)
         }
-        groups: dict[tuple[str, bool], list[int]] = {}
+        groups: dict[tuple[str, str], list[int]] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
             if isinstance(trigger, SignalTrigger):
-                groups.setdefault((transition.source, True), []).append(index)
-            elif trigger is None and transition.source not in when_sources:
-                groups.setdefault((transition.source, False), []).append(index)
+                groups.setdefault((transition.source, "signal"), []).append(
+                    index
+                )
+            elif isinstance(trigger, WhenTrigger) or (
+                trigger is None
+                and (
+                    transition.source not in when_sources
+                    or transition.guard is not None
+                )
+            ):
+                groups.setdefault((transition.source, "eventless"), []).append(
+                    index
+                )
         priorities: dict[int, int] = {}
-        for (_, is_signal), indices in groups.items():
+        for (_, kind), indices in groups.items():
+            is_signal = kind == "signal"
             orders = [
                 self._transition_facts[index].declaration_order
                 for index in indices
@@ -466,8 +503,10 @@ class SismicBuilder:
     ) -> None:
         """Plan the armed-flag machinery for one ``accept when``.
 
-        The real transition keeps sismic's default priority;
-        only the consumer use a distinct negative priority.
+        The real transitions of one source are ranked with its plain
+        eventless transitions by declaration order (the last keeps the
+        default priority, earlier ones rank above it); the consumers use
+        distinct negative priorities.
         """
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
@@ -498,8 +537,9 @@ class SismicBuilder:
         composite itself) gets a flag: false on entry, true once its own
         final state is reached, conjoined into the transition's guard.
 
-        A source with no completing scope targeted by a ``then done``
-        stays entirely ungated. Once any scope is gated, every scope is
+        A source with no completing scope targeted by a ``then done`` can
+        never complete, so its eventless transitions are gated on a literal
+        ``False``. Once any scope is gated, every scope is
         required: a region with no ``then done`` of its own is conjoined
         as a literal ``False``, so the join can never fire on a subset.
         """
@@ -526,6 +566,9 @@ class SismicBuilder:
             else:
                 continue
             if not any(scope in completion_scopes for scope in scopes):
+                # No region or body can ever complete: completion never
+                # fires on entry, so the transition is gated shut.
+                self._completion_flags_by_source[state.name] = "False"
                 continue
             flags: list[str] = []
             for scope in scopes:
@@ -639,7 +682,9 @@ class SismicBuilder:
             else transition.target
         )
         if isinstance(plan, _ChangeTriggerPlan):
-            self._emit_change_transitions(statechart, transition, plan, target)
+            self._emit_change_transitions(
+                statechart, transition, plan, target, priority
+            )
             return
         codegen = self._transition_codegen(transition)
         trigger = transition.trigger
@@ -668,6 +713,7 @@ class SismicBuilder:
         transition: TransitionFact,
         plan: _ChangeTriggerPlan,
         target: str,
+        priority: int,
     ) -> None:
         """Emit the transition pair realizing one ``accept when``.
 
@@ -687,6 +733,7 @@ class SismicBuilder:
                 target=target,
                 guard=guard,
                 action=self._statements(transition.effect, codegen),
+                priority=priority,
             )
         )
         if plan.consumer_priority is not None:
@@ -757,6 +804,13 @@ class SismicBuilder:
             )
             if completion_condition is not None:
                 condition = self._conjoin(completion_condition, condition)
+        trigger = transition.trigger
+        if isinstance(trigger, SignalTrigger) and trigger.via_port is not None:
+            port = repr(trigger.via_port)
+            condition = self._conjoin(
+                f"getattr(event, {VIA_DATA_KEY!r}, {port}) == {port}",
+                condition,
+            )
         if plan is None:
             return condition
         return self._conjoin(f"event.n == {plan.counter}", condition)
@@ -796,6 +850,64 @@ class SismicBuilder:
         return final_name
 
 
+# Builtins that the shared library-function mapping renders calls to; an
+# attribute of the same name would shadow them in the flat preamble context.
+_SHADOWED_BUILTINS = frozenset(
+    target
+    for target in LIBRARY_FUNCTIONS.values()
+    if not target.startswith("math.")
+)
+
+
+def _reject_unmapped_members(
+    container: syside.StateDefinition | syside.StateUsage,
+) -> None:
+    """Reject state-body members that have no mapping, recursively.
+
+    The shared driver reads transitions from ``transition`` usages and the
+    initial substate from ``entry``/``start`` successions only, so two valid
+    spellings would otherwise vanish without a trace.
+
+    Raises:
+        UnsupportedConstructError: If a standalone ``first A then B;``
+            succession (no ``transition`` keyword), an asserted constraint
+            in a transition body, or a state usage typed by
+            a ``state def`` (submachine reuse) is found.
+    """
+    for transition in transitions.container_transitions(container):
+        for member in transition.owned_features.collect():
+            if isinstance(member, syside.ConstraintUsage):
+                raise UnsupportedConstructError(
+                    "an asserted constraint in a transition body is "
+                    "unsupported; assert it in a state instead.",
+                    node=member,
+                )
+    entry = container.entry_action
+    for feature in container.owned_features.collect():
+        if isinstance(feature, syside.SuccessionAsUsage):
+            source = feature.source_feature
+            is_initial = source is not None and (
+                source == entry
+                or str(source.qualified_name) == "States::StateAction::start"
+            )
+            if not is_initial:
+                raise UnsupportedConstructError(
+                    "a standalone `first A then B;` succession is "
+                    "unsupported; spell the transition with the "
+                    "`transition` keyword.",
+                    node=feature,
+                )
+        elif isinstance(feature, syside.StateUsage):
+            if feature.owned_typings.collect():
+                raise UnsupportedConstructError(
+                    f"state usage {feature.name!r} typed by a state "
+                    "definition (submachine reuse) is unsupported; "
+                    "flattening it would drop the definition's content.",
+                    node=feature,
+                )
+            _reject_unmapped_members(feature)
+
+
 def build_statechart_with_needs(
     model: syside.Model,
     state_def_qn: str,
@@ -804,6 +916,9 @@ def build_statechart_with_needs(
     part_system_mode: bool = False,
 ) -> Statechart:
     """Build one statechart using the supplied render-needs registry."""
+    _reject_unmapped_members(
+        resolve(model, syside.StateDefinition, state_def_qn)
+    )
     name = state_def_qn.split("::")[-1]
     return StateMachineDriver(model).run(
         state_def_qn,
@@ -824,6 +939,9 @@ def build_statechart_artifact(
 ) -> QuakeStatechartArtifact:
     """Build a statechart together with its generated support module."""
     module_name = types_module_name(state_def_qn)
+    _reject_unmapped_members(
+        resolve(model, syside.StateDefinition, state_def_qn)
+    )
     catalog = SignalCatalog(model, [state_def_qn])
     needs = QuakeRenderNeeds(
         types_module=module_name, external=external, catalog=catalog
@@ -839,9 +957,7 @@ def build_statechart_artifact(
     # process-global side effect.
     return QuakeStatechartArtifact(
         statechart=statechart,
-        types_module=GeneratedPythonModule.from_registry(
-            module_name, needs.dataclasses
-        ),
+        types_module=types_module_for(module_name, needs.dataclasses),
         invariants=builder.invariants,
         qualified_channels=dict(catalog.qualified_channels),
         external_names=external_channel_names(catalog),

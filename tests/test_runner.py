@@ -189,7 +189,7 @@ package RunNondet {
         state left;
         state right;
         transition first idle accept when x > 0 then left;
-        transition first idle accept when x < 2 then right;
+        transition first idle then right;
     }
 }
 """
@@ -224,9 +224,9 @@ package PartIncomplete {
 
 
 def test_run_state_def_wraps_nondeterminism(tmp_path: Path) -> None:
-    # Both change conditions hold at once; change transitions are not
-    # ranked by declaration order, so the conflict reaches sismic, which
-    # rejects it at runtime.
+    # A change transition and an unguarded eventless one are both enabled; no
+    # mixed rule ranks them, so the conflict reaches sismic, which rejects
+    # it at runtime.
     model = _load_inline_model(tmp_path, NONDETERMINISTIC_MODEL)
 
     with pytest.raises(ExecutionError, match=r"[Nn]on-determinis"):
