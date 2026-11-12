@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 import syside
-from sismic.exceptions import NonDeterminismError
 from sismic.interpreter import Interpreter
 from sysmlc.semantics.statemachine.facts import (
     StateFact,
@@ -83,22 +82,26 @@ def test_each_source_of_an_automatic_chain_chooses_independently(
 
 
 @pytest.mark.parametrize(
-    ("machine", "enabled"),
+    ("machine", "enabled", "target"),
     [
-        ("WhenThenPlain", ("hot", "go")),
-        ("WhenThenTwoPlain", ("go",)),
-        ("WhenThenTwoPlain", ("hot", "go")),
+        ("WhenThenPlain", ("hot", "go"), "viaWhen"),
+        ("WhenThenPlain", ("go",), "viaPlain"),
+        ("WhenThenTwoPlain", ("go",), "viaPlain1"),
+        ("WhenThenTwoPlain", ("hot", "go"), "viaWhen"),
+        ("MixGuardedRev", ("hot", "go"), "viaGuard"),
+        ("MixGuardedRev", ("hot",), "viaChange"),
     ],
 )
-def test_accept_when_source_keeps_triggerless_siblings_unranked(
-    model: syside.Model, machine: str, enabled: tuple[str, ...]
+def test_accept_when_ranks_with_guarded_eventless_siblings(
+    model: syside.Model, machine: str, enabled: tuple[str, ...], target: str
 ) -> None:
+    """A change transition and guarded eventless siblings share one order."""
     interpreter = _run(model, machine)
     assert interpreter.configuration == [machine, "active"]
     for name in enabled:
         interpreter.context[name] = True
-    with pytest.raises(NonDeterminismError):
-        interpreter.execute()
+    interpreter.execute()
+    assert interpreter.configuration == [machine, target]
 
 
 @pytest.mark.parametrize(
