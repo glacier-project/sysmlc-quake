@@ -443,9 +443,16 @@ What reaching that final state means depends on where the scope sits:
   per SysML's AND-state semantics, a region with no path to completion means
   the whole parallel state can never complete either.
 
-A source with no `then done` anywhere among its regions stays entirely
-ungated, firing on sismic's ordinary selection like any plain eventless
-transition.
+A composite or parallel source with no `then done` anywhere inside it can
+**never complete**, so completion never fires on its entry (the rosetta rule):
+the machine stays in the composite's substates, and the eventless transition is
+gated on a literal `False`. `transition first warming then cool;` with
+`state warming { state low; state high; ... }` and no `done` leaves the machine
+in `warming`, rather than leaving it the moment it is entered.
+
+The same rule applies in `sm12-do-action`: `MachineCompositeDo`'s `working` has no
+`then done`, so `finished` is unreachable on quake and rosetta alike (the shared
+model is not edited).
 
 ```sysml
 state def MachineParallelJoin {

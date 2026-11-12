@@ -522,8 +522,9 @@ class SismicBuilder:
         composite itself) gets a flag: false on entry, true once its own
         final state is reached, conjoined into the transition's guard.
 
-        A source with no completing scope targeted by a ``then done``
-        stays entirely ungated. Once any scope is gated, every scope is
+        A source with no completing scope targeted by a ``then done`` can
+        never complete, so its eventless transitions are gated on a literal
+        ``False``. Once any scope is gated, every scope is
         required: a region with no ``then done`` of its own is conjoined
         as a literal ``False``, so the join can never fire on a subset.
         """
@@ -550,6 +551,9 @@ class SismicBuilder:
             else:
                 continue
             if not any(scope in completion_scopes for scope in scopes):
+                # No region or body can ever complete: completion never
+                # fires on entry, so the transition is gated shut.
+                self._completion_flags_by_source[state.name] = "False"
                 continue
             flags: list[str] = []
             for scope in scopes:
