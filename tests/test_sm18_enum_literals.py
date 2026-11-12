@@ -76,32 +76,39 @@ def test_real_enum_guard_projects_and_gates_at_runtime(
     assert "passed" in interpreter.configuration
 
 
-def test_plain_enum_default_projects_to_name(model: syside.Model) -> None:
-    """A plain symbolic literal default projects to its name as a string."""
+def test_plain_enum_default_is_a_generated_enum_member(
+    model: syside.Model,
+) -> None:
+    """A plain symbolic literal default is a member of a generated class."""
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert sc.preamble == quake_preamble('m = "idle"')
+    assert sc.preamble == quake_preamble(
+        "from SM18_MachinePlainEnum_types import Mode", "m = Mode.idle"
+    )
 
 
-def test_plain_enum_effect_projects_to_name(model: syside.Model) -> None:
-    """A plain symbolic literal in an effect projects to its name."""
+def test_plain_enum_effect_assigns_the_member(model: syside.Model) -> None:
+    """A plain symbolic literal in an effect is the enum member."""
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert transition_between(sc, "ready", "working").action == 'm = "busy"'
+    assert transition_between(sc, "ready", "working").action == "m = Mode.busy"
 
 
-def test_plain_enum_guard_projects_and_gates_at_runtime(
+def test_plain_enum_guard_compares_members_and_gates_at_runtime(
     model: syside.Model,
 ) -> None:
     """A plain symbolic literal in a guard projects and gates the fire.
 
-    The guard string carries the projected name; at runtime it lets
-    the machine reach ``checked`` once the effect wrote that name.
+    The guard compares enum members; at runtime it lets the machine reach
+    ``checked`` once the effect wrote that member.
     """
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert transition_between(sc, "working", "checked").guard == 'm == "busy"'
+    assert (
+        transition_between(sc, "working", "checked").guard == "m == Mode.busy"
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "checked" in interpreter.configuration
-    assert interpreter.context["m"] == "busy"
+    assert interpreter.context["m"].name == "busy"
+    assert interpreter.context["m"] != "busy"
 
 
 def test_enum_payload_send_projects_and_drives_accept(
@@ -157,3 +164,34 @@ def test_computed_enum_value_is_parenthesized(tmp_path: Path) -> None:
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "s2" in interpreter.configuration
+
+
+IDENTITY_MODEL = """
+package EnumIdentity {
+    enum def Mode { enum idle; }
+    enum def Phase { enum idle; }
+
+    state def Machine {
+        attribute m : Mode := Mode::idle;
+        entry;
+            then a;
+        state a;
+        state same;
+        state other;
+        transition first a if m == Mode::idle then same;
+        transition first a if m == Phase::idle then other;
+    }
+}
+"""
+
+
+def test_same_named_literals_of_different_enums_stay_distinct(
+    tmp_path: Path,
+) -> None:
+    """Members of two plain enums never compare equal."""
+    model = _load_inline_model(tmp_path, IDENTITY_MODEL)
+    sc = build_statechart(model, "EnumIdentity::Machine")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "same" in interpreter.configuration
+    assert "other" not in interpreter.configuration

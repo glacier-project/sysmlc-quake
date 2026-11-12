@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import keyword
 from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
@@ -13,6 +14,7 @@ from sysmlc.codegen.python import (
 )
 from sysmlc.codegen.structured import (
     DataclassRegistry,
+    GeneratedPythonModule,
     constructed_payload_definition,
     types_import_lines,
 )
@@ -214,6 +216,24 @@ class QuakeRenderNeeds:
             )
             lines.append(f"from {self.types_module} import {aliases}")
         return lines
+
+
+ENUM_BASE_IMPORT = "from enum import Enum"
+
+
+def types_module_for(
+    name: str, registry: DataclassRegistry
+) -> GeneratedPythonModule | None:
+    """Render the companion module for ``registry``, enum classes included.
+
+    Returns:
+        The module, or ``None`` when nothing was registered.
+    """
+    has_enum = any(line.endswith("(Enum):") for line in registry.class_blocks())
+    lines = registry.module_lines(
+        preceding_lines=[ENUM_BASE_IMPORT] if has_enum else ()
+    )
+    return GeneratedPythonModule(name, tuple(lines)) if lines else None
 
 
 def _enumeration_is_structured(
@@ -433,11 +453,49 @@ class SismicCodeGen(PythonCodeGen):
                 "single primitive projection and are not supported.",
                 node=literal,
             )
-        # A plain symbolic literal projects to its own name as a string.
         if literal.name is None:
             raise ValueError("enumeration literal has no resolved name")
+        if isinstance(owner, syside.EnumerationDefinition):
+            symbol = self._register_enum_class(owner)
+            return f"{symbol}.{literal.name}"
         delimiter = self._context.string_delimiter
         return f"{delimiter}{literal.name}{delimiter}"
+
+    def _register_enum_class(
+        self, definition: syside.EnumerationDefinition
+    ) -> str:
+        """Register a plain enumeration's generated class; return its name.
+
+        Each literal is a member whose value is its own name, so the class
+        keeps the enumeration's identity: members of different
+        enumerations never compare equal.
+
+        Raises:
+            UnsupportedConstructError: If the enumeration or a literal name
+                is not a valid Python identifier, or the class name collides
+                with a different generated type.
+        """
+        registry = self._needs.dataclasses
+        symbol = registry.symbol_for(definition)
+        names = [
+            str(literal.name)
+            for literal in definition.enumerated_values.collect()
+        ]
+        for name in (symbol, *names):
+            if not name.isidentifier() or keyword.iskeyword(name):
+                raise UnsupportedConstructError(
+                    f"enumeration name {name!r} is not a valid Python "
+                    "identifier",
+                    node=definition,
+                )
+        lines = (
+            f"class {symbol}(Enum):",
+            *(f"    {name} = {name!r}" for name in names),
+        )
+        registry.register(
+            symbol, str(definition.qualified_name or symbol), lines
+        )
+        return symbol
 
     @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:

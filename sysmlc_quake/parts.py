@@ -20,7 +20,7 @@ from sysmlc_quake.artifacts import (
     resolve_external_channel,
 )
 from sysmlc_quake.builder import build_statechart_with_needs
-from sysmlc_quake.codegen import QuakeRenderNeeds
+from sysmlc_quake.codegen import QuakeRenderNeeds, types_module_for
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -137,7 +137,5 @@ def build_part_system(
         routes=routes,
         qualified_channels=dict(catalog.qualified_channels),
         external_names=external_channel_names(catalog),
-        types_module=GeneratedPythonModule.from_registry(
-            module_name, shared_types
-        ),
+        types_module=types_module_for(module_name, shared_types),
     )
