@@ -178,10 +178,10 @@ class QuakeBackend(Backend):
         written = [manifest]
         if artifact.types_module is not None:
             written.append(artifact.types_module.write(system_dir))
-        for node in artifact.graph.parts:
-            statechart = artifact.statecharts[node.usage_name]
+        for instance in artifact.instances:
+            statechart = artifact.statecharts[instance.name]
             for fmt in formats:
-                path = system_dir / f"{node.usage_name}.{self._EXTENSIONS[fmt]}"
+                path = system_dir / f"{instance.name}.{self._EXTENSIONS[fmt]}"
                 path.write_text(self.serialize(statechart, fmt))
                 written.append(path)
         return written
@@ -192,7 +192,7 @@ class QuakeBackend(Backend):
         if isinstance(artifact, QuakePartSystem):
             return (
                 f"part system {artifact.name!r}: "
-                f"{len(artifact.graph.parts)} parts, "
+                f"{len(artifact.instances)} parts, "
                 f"{len(artifact.routes)} routes"
             )
         statechart = _as_statechart(artifact)
@@ -212,11 +212,11 @@ def _part_system_manifest(artifact: QuakePartSystem) -> dict[str, object]:
         "name": artifact.name,
         "instances": [
             {
-                "name": node.usage_name,
-                "definition": node.definition_name,
-                "behavior": node.behaviors[0][1],
+                "name": instance.name,
+                "definition": instance.definition,
+                "behavior": instance.behavior,
             }
-            for node in artifact.graph.parts
+            for instance in artifact.instances
         ],
         "routes": [asdict(route) for route in artifact.routes],
     }

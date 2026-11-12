@@ -87,10 +87,6 @@ EXPECTED_FAILURES: dict[str, ExpectedFailure] = {
         stages=("build", "run"),
         reason="rejection fixture: the part declares no exhibited state",
     ),
-    "sm-examples/part-multi-exhibit::sys": ExpectedFailure(
-        stages=("build", "run"),
-        reason="rejection fixture: a part exhibits more than one state",
-    ),
     "sm-examples/part-undeclared-via::sys": ExpectedFailure(
         stages=("build", "run"),
         reason=(
