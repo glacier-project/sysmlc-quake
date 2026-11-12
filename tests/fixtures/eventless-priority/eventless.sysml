@@ -196,4 +196,15 @@ package EventlessPriority {
         transition first active if go then viaPlain1;
         transition first active if go then viaPlain2;
     }
+
+    state def MixGuardedRev {
+        attribute hot : Boolean := false;
+        attribute go : Boolean := false;
+        entry; then active;
+        state active;
+        state viaGuard;
+        state viaChange;
+        transition first active if go then viaGuard;
+        transition first active accept when hot then viaChange;
+    }
 }

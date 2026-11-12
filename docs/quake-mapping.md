@@ -1065,12 +1065,13 @@ state def Machine {
 ```
 
 > ⚠️ **Limitation:** at a source that also has an `accept when` transition,
-> whose real transition is eventless as well (Section 3.6), ordinary
-> triggerless transitions and the real change transition keep their existing
-> default priority, and the change consumers keep their negative priorities.
-> Signal transitions at that source are ranked as usual. Two default-priority
-> eventless transitions enabled in the same step still raise
-> `NonDeterminismError`: no mixed eventless/change rule is chosen.
+> whose real transition is eventless as well (Section 3.6), the real change
+> transitions and the **guarded** eventless transitions of the source are ranked
+> together by declaration order, and the change consumers keep their negative
+> priorities. Signal transitions at that source are ranked as usual. An
+> **unguarded** triggerless transition at that source stays unranked (it is
+> always enabled): enabled together with a change transition in the same step,
+> it still raises `NonDeterminismError`.
 
 ### 3.4 `accept after <duration>` → one-shot delayed event
 
@@ -1426,13 +1427,14 @@ transition would exit and re-enter `idle`, re-running `on entry`: user entry
 actions would execute again and the flag would be re-armed, undoing the
 consumption. An internal transition fires its action while staying put.
 
-*Why the real transition keeps the default priority:* two transitions enabled
-from one source in the same step is, in SysML, a genuine ambiguity (7.18.3
-mandates no priority between transitions). Leaving the real transitions at the
-default priority lets sismic raise `NonDeterminismError` on such a model: the
-generator does not silently invent an order. The declaration-order rule for
-plain eventless transitions (Section 3.3) is therefore not applied at a source
-that has an `accept when`. Only the consumers are pushed out of the way, to
+*Why the real transitions are ranked:* two change transitions enabled from one
+source in the same step would otherwise reach sismic as a tie and raise
+`NonDeterminismError`. As for signals and plain eventless transitions (Section
+3.3), declaration order is their firing priority: the last declared keeps the
+default priority and each earlier one ranks one step above it. The
+guarded plain eventless transitions of the source join the same declaration
+order; an unguarded one is always enabled, so it stays unranked and a tie with
+a change transition remains an error. The consumers are pushed out of the way, to
 distinct negative priorities so two rejected observations never collide with
 each other. One tie is decided structurally rather than by us: a `when` and a
 time trigger due at the same instant resolve **when-first**, because eventless

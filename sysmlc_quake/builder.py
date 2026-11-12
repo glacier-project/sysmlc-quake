@@ -287,24 +287,37 @@ class SismicBuilder:
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
-        # A change trigger's real transition is eventless at the default
-        # priority too; ranking plain eventless transitions above it would
-        # decide a mixed-trigger competition, so triggerless transitions at
-        # such sources are not ranked; their signal ranking is unaffected.
+        # A change trigger's real transition is eventless too, so it ranks
+        # with the guarded eventless transitions of its source: one group,
+        # ordered by declaration. An unguarded triggerless sibling at such a
+        # source stays unranked (it is always enabled, so ranking it would
+        # decide a competition the model never states); its signal ranking
+        # is unaffected.
         when_sources = {
             transition.source
             for transition in self._transition_facts
             if isinstance(transition.trigger, WhenTrigger)
         }
-        groups: dict[tuple[str, bool], list[int]] = {}
+        groups: dict[tuple[str, str], list[int]] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
             if isinstance(trigger, SignalTrigger):
-                groups.setdefault((transition.source, True), []).append(index)
-            elif trigger is None and transition.source not in when_sources:
-                groups.setdefault((transition.source, False), []).append(index)
+                groups.setdefault((transition.source, "signal"), []).append(
+                    index
+                )
+            elif isinstance(trigger, WhenTrigger) or (
+                trigger is None
+                and (
+                    transition.source not in when_sources
+                    or transition.guard is not None
+                )
+            ):
+                groups.setdefault((transition.source, "eventless"), []).append(
+                    index
+                )
         priorities: dict[int, int] = {}
-        for (_, is_signal), indices in groups.items():
+        for (_, kind), indices in groups.items():
+            is_signal = kind == "signal"
             orders = [
                 self._transition_facts[index].declaration_order
                 for index in indices
@@ -490,8 +503,10 @@ class SismicBuilder:
     ) -> None:
         """Plan the armed-flag machinery for one ``accept when``.
 
-        The real transition keeps sismic's default priority;
-        only the consumer use a distinct negative priority.
+        The real transitions of one source are ranked with its plain
+        eventless transitions by declaration order (the last keeps the
+        default priority, earlier ones rank above it); the consumers use
+        distinct negative priorities.
         """
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
@@ -667,7 +682,9 @@ class SismicBuilder:
             else transition.target
         )
         if isinstance(plan, _ChangeTriggerPlan):
-            self._emit_change_transitions(statechart, transition, plan, target)
+            self._emit_change_transitions(
+                statechart, transition, plan, target, priority
+            )
             return
         codegen = self._transition_codegen(transition)
         trigger = transition.trigger
@@ -696,6 +713,7 @@ class SismicBuilder:
         transition: TransitionFact,
         plan: _ChangeTriggerPlan,
         target: str,
+        priority: int,
     ) -> None:
         """Emit the transition pair realizing one ``accept when``.
 
@@ -715,6 +733,7 @@ class SismicBuilder:
                 target=target,
                 guard=guard,
                 action=self._statements(transition.effect, codegen),
+                priority=priority,
             )
         )
         if plan.consumer_priority is not None:
