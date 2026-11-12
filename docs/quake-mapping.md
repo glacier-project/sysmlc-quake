@@ -2065,6 +2065,16 @@ part pingSystem {
 }
 ```
 
+A part def that exhibits **several named state defs** (a testbench rig,
+`exhibit state plant : PlantBehavior; exhibit state tb : TesterBehavior;`)
+becomes one instance per exhibit, named `<usage>.<exhibit>` (`rig.plant`,
+`rig.tb`). The exhibits share the part, so no `interface` or declared port is
+needed: a signal one exhibit sends reaches every other exhibit that accepts it,
+over the port the accepter names. The same state def exhibited twice, a signal
+sent by two exhibits into one accepter, and a signal sent both ways between two
+exhibits are rejected; an anonymous exhibit among several is rejected by the
+shared part graph.
+
 ### 5.1 top-level `part` usage → one statechart per instance + routing manifest
 
 `sysmlc quake build <model-dir>` on a model whose single top-level part usage

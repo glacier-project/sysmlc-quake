@@ -62,14 +62,12 @@ class PartSystemCoordinator:
         self._clock = SimulatedClock()
         self._routes = _route_map(system.routes)
         self._interpreters = {
-            node.usage_name: Interpreter(
-                system.statecharts[node.usage_name],
-                initial_context={
-                    ROUTER_CONTEXT_KEY: self._route_for(node.usage_name)
-                },
+            name: Interpreter(
+                system.statecharts[name],
+                initial_context={ROUTER_CONTEXT_KEY: self._route_for(name)},
                 clock=self._clock,
             )
-            for node in system.graph.parts
+            for name in system.statecharts
         }
 
     @property
