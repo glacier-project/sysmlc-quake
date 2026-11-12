@@ -15,7 +15,6 @@ from sismic.model import (
 )
 from sysmlc.codegen.python import LIBRARY_FUNCTIONS, join_statements
 from sysmlc.codegen.structured import (
-    GeneratedPythonModule,
     constructed_payload_definition,
     register_dataclass,
     types_module_name,
@@ -54,6 +53,7 @@ from sysmlc_quake.codegen import (
     math_import_lines,
     payload_constructor,
     payload_reader_lines,
+    types_module_for,
 )
 
 if TYPE_CHECKING:
@@ -934,9 +934,7 @@ def build_statechart_artifact(
     # process-global side effect.
     return QuakeStatechartArtifact(
         statechart=statechart,
-        types_module=GeneratedPythonModule.from_registry(
-            module_name, needs.dataclasses
-        ),
+        types_module=types_module_for(module_name, needs.dataclasses),
         invariants=builder.invariants,
         qualified_channels=dict(catalog.qualified_channels),
         external_names=external_channel_names(catalog),

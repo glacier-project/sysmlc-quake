@@ -33,8 +33,8 @@ def test_constant_bindings_stay_readable_while_initials_change() -> None:
     assert (context["a"], context["once"], context["seen"]) == (5, 2, 9)
     assert (context["k"], context["limit"], context["ratio"]) == (1, 3, -2.5)
     assert (context["positive"], context["holdTime"]) == (4, 2.0)
-    # Symbolic literals project to their names, valued ones to their values.
-    assert (context["setting"], context["light"]) == ("busy", "g")
+    # Symbolic literals are enum members, valued ones project to values.
+    assert (context["setting"].name, context["light"]) == ("busy", "g")
 
 
 def test_configured_bound_default_is_the_new_constant() -> None:

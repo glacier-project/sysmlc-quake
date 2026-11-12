@@ -721,7 +721,7 @@ dataclass instance: `isinstance(reading, AngleReading)` holds and
 
 ______________________________________________________________________
 
-### 2.3 enum literal → projected primitive value
+### 2.3 enum literal → generated `Enum` member / projected value
 
 *Corpus: `sm18-enum-literals`*
 
@@ -738,11 +738,12 @@ reference literals in attribute initial values, guards, effects, and send
 payload arguments (`attribute c : LightColor := LightColor::red`,
 `if c == LightColor::green`).
 
-Quake emits every literal reference as its **projected primitive value**,
-never as a generated enum class: a valued literal emits its declared value's
-source (`LightColor::red` emits `"red"`, `GradePoints::A` emits `4.0`), and a
-plain literal emits its own name as a Python string (`Mode::idle` emits
-`"idle"`). The projection substitutes into the reference's atom position, so a
+Quake treats the two forms differently. A **valued** literal is emitted as its
+**projected primitive value**: its declared value's source (`LightColor::red`
+emits `"red"`, `GradePoints::A` emits `4.0`). A **plain** literal is a member
+of a **generated `Enum` class** in the companion types module
+(`Mode::idle` emits `Mode.idle`, with `from <module>_types import Mode` in the
+preamble). The valued projection substitutes into the reference's atom position, so a
 computed declared value keeps its grouping (`N = 2.0 + 2.0` referenced under a
 `*` emits `(2.0 + 2.0)`).
 
@@ -780,10 +781,10 @@ statechart:
 semantics: the enumeration subtypes the scalar and each literal **is** its
 declared value, so `GradePoints::A >= 3.0` must compare numbers, which a
 generated enum class with symbolic members could not do. Plain literals have
-no primitive value, so their name string is the projection that keeps
-same-definition literals distinct and the emitted YAML readable. Nothing in
-the sismic context has to be a class, which also keeps the preamble trivially
-copyable for sismic's contract snapshots.
+no primitive value, so a generated class keeps the enumeration's **identity**:
+`Mode.idle != Phase.idle`, where name strings would compare equal. Each member's
+value is its own name, and the classes live in the same companion module as
+generated dataclasses.
 
 > ⚠️ **Boundary:** a **structured** enumeration (one specializing an attribute
 > definition, each literal redefining fields with `:>>`) has no single
@@ -791,12 +792,12 @@ copyable for sismic's contract snapshots.
 > definition. Support would project literals to field namespaces if a model
 > ever needs it.
 
-> ⚠️ **Limitation:** the projection erases the enumeration **type identity**
-> at runtime. Two *different* plain enumerations with same-named literals
-> project to equal strings, so a cross-enumeration comparison (arguably an
-> ill-typed model) silently evaluates true instead of being flagged; and
-> nothing at simulation time enforces that an enum-typed attribute only ever
-> holds one of its declared literals.
+> ⚠️ **Limitation:** a **valued** enumeration still erases the type identity:
+> two different enumerations over the same scalar with equal values compare
+> equal. Nothing at simulation time enforces that an enum-typed attribute only
+> ever holds one of its declared literals. A plain enum member does not equal
+> its name string, so a model comparing it to a string literal no longer
+> matches.
 
 ______________________________________________________________________
 
