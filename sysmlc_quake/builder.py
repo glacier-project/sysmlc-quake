@@ -13,7 +13,7 @@ from sismic.model import (
     Statechart,
     Transition,
 )
-from sysmlc.codegen.python import join_statements
+from sysmlc.codegen.python import LIBRARY_FUNCTIONS, join_statements
 from sysmlc.codegen.structured import (
     GeneratedPythonModule,
     constructed_payload_definition,
@@ -38,7 +38,7 @@ from sysmlc.semantics.statemachine.facts import (
     WhenTrigger,
 )
 from sysmlc.semantics.statemachine.signals import SignalCatalog
-from sysmlc.sysml.queries import structured_fields
+from sysmlc.sysml.queries import resolve, structured_fields
 
 from sysmlc_quake.artifacts import (
     QuakeInvariant,
@@ -198,6 +198,11 @@ class SismicBuilder:
                 f"attribute {binding.name!r} starts with an underscore; "
                 "that namespace is reserved for the generated machinery. "
             )
+        if binding.name in _SHADOWED_BUILTINS:
+            raise UnsupportedConstructError(
+                f"attribute {binding.name!r} would shadow the builtin "
+                "that the library-function mapping renders to; rename it."
+            )
         if binding.name in self._seen_attrs:
             first = self._seen_attrs[binding.name]
             raise UnsupportedConstructError(
@@ -221,7 +226,25 @@ class SismicBuilder:
         return tuple(self._invariants)
 
     def add_state(self, state: StateFact) -> None:
-        """Buffer a state fact (emitted in :meth:`result`)."""
+        """Buffer a state fact (emitted in :meth:`result`).
+
+        Raises:
+            UnsupportedConstructError: If the state is named like the
+                machine's root state (sismic keys states by name), or a
+                segment of its name starts with the reserved ``_`` prefix.
+        """
+        if state.name == self._name and state.parent is not None:
+            raise UnsupportedConstructError(
+                f"state {state.name!r} has the name of its state "
+                "definition; sismic names the root state after the "
+                "definition, so rename the state."
+            )
+        if any(segment.startswith("_") for segment in state.name.split("::")):
+            raise UnsupportedConstructError(
+                f"state {state.name!r} starts with an underscore; that "
+                "namespace is reserved for the generated machinery; rename "
+                "the state."
+            )
         self._state_facts.append(state)
 
     def add_transition(self, transition: TransitionFact) -> None:
@@ -796,6 +819,64 @@ class SismicBuilder:
         return final_name
 
 
+# Builtins that the shared library-function mapping renders calls to; an
+# attribute of the same name would shadow them in the flat preamble context.
+_SHADOWED_BUILTINS = frozenset(
+    target
+    for target in LIBRARY_FUNCTIONS.values()
+    if not target.startswith("math.")
+)
+
+
+def _reject_unmapped_members(
+    container: syside.StateDefinition | syside.StateUsage,
+) -> None:
+    """Reject state-body members that have no mapping, recursively.
+
+    The shared driver reads transitions from ``transition`` usages and the
+    initial substate from ``entry``/``start`` successions only, so two valid
+    spellings would otherwise vanish without a trace.
+
+    Raises:
+        UnsupportedConstructError: If a standalone ``first A then B;``
+            succession (no ``transition`` keyword), an asserted constraint
+            in a transition body, or a state usage typed by
+            a ``state def`` (submachine reuse) is found.
+    """
+    for transition in transitions.container_transitions(container):
+        for member in transition.owned_features.collect():
+            if isinstance(member, syside.ConstraintUsage):
+                raise UnsupportedConstructError(
+                    "an asserted constraint in a transition body is "
+                    "unsupported; assert it in a state instead.",
+                    node=member,
+                )
+    entry = container.entry_action
+    for feature in container.owned_features.collect():
+        if isinstance(feature, syside.SuccessionAsUsage):
+            source = feature.source_feature
+            is_initial = source is not None and (
+                source == entry
+                or str(source.qualified_name) == "States::StateAction::start"
+            )
+            if not is_initial:
+                raise UnsupportedConstructError(
+                    "a standalone `first A then B;` succession is "
+                    "unsupported; spell the transition with the "
+                    "`transition` keyword.",
+                    node=feature,
+                )
+        elif isinstance(feature, syside.StateUsage):
+            if feature.owned_typings.collect():
+                raise UnsupportedConstructError(
+                    f"state usage {feature.name!r} typed by a state "
+                    "definition (submachine reuse) is unsupported; "
+                    "flattening it would drop the definition's content.",
+                    node=feature,
+                )
+            _reject_unmapped_members(feature)
+
+
 def build_statechart_with_needs(
     model: syside.Model,
     state_def_qn: str,
@@ -804,6 +885,9 @@ def build_statechart_with_needs(
     part_system_mode: bool = False,
 ) -> Statechart:
     """Build one statechart using the supplied render-needs registry."""
+    _reject_unmapped_members(
+        resolve(model, syside.StateDefinition, state_def_qn)
+    )
     name = state_def_qn.split("::")[-1]
     return StateMachineDriver(model).run(
         state_def_qn,
@@ -824,6 +908,9 @@ def build_statechart_artifact(
 ) -> QuakeStatechartArtifact:
     """Build a statechart together with its generated support module."""
     module_name = types_module_name(state_def_qn)
+    _reject_unmapped_members(
+        resolve(model, syside.StateDefinition, state_def_qn)
+    )
     catalog = SignalCatalog(model, [state_def_qn])
     needs = QuakeRenderNeeds(
         types_module=module_name, external=external, catalog=catalog

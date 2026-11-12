@@ -479,9 +479,25 @@ class SismicCodeGen(PythonCodeGen):
             return external_call
         func = expr.function
         qn = None if func is None else func.qualified_name
+        languages = sorted(
+            {
+                str(member.language)
+                for member in (
+                    func.owned_elements.collect() if func is not None else []
+                )
+                if isinstance(member, syside.TextualRepresentation)
+            }
+        )
+        cause = (
+            f" It has only {', '.join(languages)} textual "
+            "representation(s); quake executes Python, so provide a "
+            "Python representation or backing module."
+            if languages
+            else ""
+        )
         raise UnsupportedConstructError(
             f"function {qn or '<unresolved>'!s} is not in quake's "
-            "supported set.",
+            f"supported set.{cause}",
             node=expr,
         )
 

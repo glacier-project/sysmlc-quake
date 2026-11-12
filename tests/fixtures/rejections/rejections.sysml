@@ -101,4 +101,92 @@ package Rejections {
             then idle;
         state idle;
     }
+
+    action def Helper;
+
+    // A referencing entry performs an action declared elsewhere; there is
+    // no mapping yet, so it must not build as a state without `on entry`.
+    state def MachineEntryReference {
+        entry;
+            then idle;
+        state idle {
+            entry helper;
+        }
+        action helper : Helper;
+    }
+
+    state def MachineExitReference {
+        entry;
+            then idle;
+        state idle {
+            exit helper;
+        }
+        action helper : Helper;
+    }
+
+    // A referencing transition effect performs an action declared elsewhere.
+    state def MachineEffectReference {
+        entry;
+            then idle;
+        state idle;
+        state running;
+        action helper : Helper;
+        transition first idle do helper then running;
+    }
+
+    // A standalone succession (no `transition` keyword) is a transition
+    // spelling that must not vanish.
+    state def MachineStandaloneSuccession {
+        entry;
+            then idle;
+        state idle;
+        state running;
+        first idle then running;
+    }
+
+    state def Sub {
+        entry;
+            then a;
+        state a;
+        state b;
+    }
+
+    // A state usage typed by a state def: flattening it to a leaf would
+    // lose the def's content.
+    state def MachineSubmachineUsage {
+        entry;
+            then s1;
+        state s1 : Sub;
+    }
+
+    // An asserted constraint in a transition body has no mapping yet.
+    state def MachineTransitionConstraint {
+        attribute x : Integer := 1;
+        entry;
+            then idle;
+        state idle;
+        state running;
+        transition first idle accept Go then running {
+            assert constraint { x > 0 }
+        }
+    }
+
+    state def MachineRootNamedState {
+        entry;
+            then MachineRootNamedState;
+        state MachineRootNamedState;
+    }
+
+    state def MachineUnderscoreState {
+        entry;
+            then _hidden;
+        state _hidden;
+    }
+
+    state def MachineShadowsMax {
+        attribute max : Real := 2.0;
+        entry;
+            then idle;
+        state idle;
+    }
 }
