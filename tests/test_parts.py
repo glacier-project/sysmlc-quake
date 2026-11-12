@@ -493,3 +493,55 @@ def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
         if entry.instance == "sleeper" and entry.step.time > 0
     ]
     assert sleeper_steps_after_zero == []
+
+
+ACCEPT_VIA_MODEL = """
+package PartAcceptVia {
+    item def Go;
+
+    state def SenderBehavior {
+        port outPort;
+        entry; then ready;
+        state ready;
+        transition first ready do send new Go() via outPort then done;
+    }
+    state def ReceiverBehavior {
+        port rxA;
+        port rxB;
+        entry; then waiting;
+        state waiting;
+        state wrong;
+        state right;
+        transition first waiting accept Go via rxB then wrong;
+        transition first waiting accept Go via rxA then right;
+    }
+
+    part def Sender { port outPort; exhibit state : SenderBehavior; }
+    part def Receiver {
+        port rxA;
+        port rxB;
+        exhibit state : ReceiverBehavior;
+    }
+
+    part sys {
+        part tx : Sender;
+        part rx : Receiver;
+        interface tx.outPort to rx.rxA;
+    }
+}
+"""
+
+
+def test_accepter_via_port_selects_the_receiving_port(tmp_path: Path) -> None:
+    """A signal delivered on ``rxA`` fires only the ``via rxA`` accepter."""
+    model = _load_inline_model(tmp_path, ACCEPT_VIA_MODEL)
+    system = build_part_system(model, "PartAcceptVia::sys")
+    if system.types_module is not None:
+        system.types_module.install()
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run(max_steps=20)
+
+    configuration = coordinator.interpreters["rx"].configuration
+    assert "right" in configuration
+    assert "wrong" not in configuration

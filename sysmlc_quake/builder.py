@@ -48,6 +48,7 @@ from sysmlc_quake.artifacts import (
 from sysmlc_quake.codegen import (
     PAYLOAD_READER,
     TICK_METADATA_KEY,
+    VIA_DATA_KEY,
     QuakeRenderNeeds,
     SismicCodeGen,
     math_import_lines,
@@ -780,6 +781,13 @@ class SismicBuilder:
             )
             if completion_condition is not None:
                 condition = self._conjoin(completion_condition, condition)
+        trigger = transition.trigger
+        if isinstance(trigger, SignalTrigger) and trigger.via_port is not None:
+            port = repr(trigger.via_port)
+            condition = self._conjoin(
+                f"getattr(event, {VIA_DATA_KEY!r}, {port}) == {port}",
+                condition,
+            )
         if plan is None:
             return condition
         return self._conjoin(f"event.n == {plan.counter}", condition)

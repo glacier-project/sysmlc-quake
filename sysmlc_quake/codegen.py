@@ -78,6 +78,11 @@ ROUTER_CONTEXT_KEY = "_sysmlc_route"
 # coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
 
+# Kwarg the part-system router stamps on every delivered event: the simple
+# name of the receiving port. An accepter with ``via <port>`` guards on it;
+# an event without the stamp (queued outside a part system) matches any port.
+VIA_DATA_KEY = "_sysmlc_via"
+
 # Sismic event-data key carrying a data-bearing signal's generated payload
 # object. Modeled fields live on that object, never beside Sismic's own
 # ``name``/``data``/``delay`` event attributes.

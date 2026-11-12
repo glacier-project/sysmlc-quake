@@ -941,12 +941,18 @@ payload binding does not change type identity. Naming the payload (`accept readi
 (`accept Tick`) both still yield `event: Tick`: all three forms emit the same
 transition.
 
-> ⚠️ **Limitation:** the accepter's `via commPort` qualifier is **dropped**;
-> events match by name alone. A port only matters for routing on the sender's
-> side: in a part system the sender's `via` port and the `interface` decide
-> *which* machine receives the transfer (Section 5), and a single statechart
-> has nothing to route between. In both cases the accepter cannot distinguish
-> two same-named signals arriving over different ports.
+In a **part system** the accepter's `via commPort` is enforced: the router
+stamps each delivered event with the simple name of the receiving port, and the
+transition's guard gains `getattr(event, '_sysmlc_via', 'commPort') == 'commPort'`.
+Two accepters of the same signal on different ports therefore fire
+independently. The stamp is an attribute of the event object, not event data,
+so payload envelopes are unchanged. An event queued outside a part system
+carries no stamp and matches any port.
+
+> ⚠️ **Boundary:** a **single statechart** has no connections, so `via` cannot
+> select anything there: events match by name alone. Two connections of one
+> signal into different ports of one machine deliver one event per port, so an
+> accepter without `via` fires once per delivery.
 
 Build artifacts expose `qualified_channels` and `resolve_external(name)`.
 The resolver accepts qualified type names and unambiguous simple names, and

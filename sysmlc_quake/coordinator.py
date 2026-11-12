@@ -9,17 +9,19 @@ from typing import TYPE_CHECKING, cast
 
 from sismic.clock import SimulatedClock
 from sismic.interpreter import Interpreter
+from sismic.model import Event
 
 from sysmlc_quake.codegen import (
     ROUTER_CONTEXT_KEY,
     TICK_METADATA_KEY,
+    VIA_DATA_KEY,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from typing import Any
 
-    from sismic.model import Event, MacroStep
+    from sismic.model import MacroStep
     from sysmlc.semantics.parts.routing import PortSignalRoute
 
     from sysmlc_quake.parts import QuakePartSystem
@@ -31,6 +33,12 @@ class CoordinatedStep:
 
     instance: str
     step: MacroStep
+
+
+class _RoutedEvent(Event):
+    """An event delivered through a connection, stamped with its port."""
+
+    __slots__ = (VIA_DATA_KEY,)
 
 
 class StopReason(enum.Enum):
@@ -105,12 +113,16 @@ class PartSystemCoordinator:
             named ``signal`` or ``port`` passes through ``payload`` instead
             of clashing with them.
             """
-            targets = {
-                edge.target
+            deliveries = {
+                (edge.target, edge.target_port)
                 for edge in self._routes.get((source, port, signal), ())
             }
-            for target in sorted(targets):
-                self._interpreters[target].queue(signal, **payload)
+            for target, target_port in sorted(deliveries):
+                event = _RoutedEvent(signal, **payload)
+                # A slot, not event data: the envelope keeps holding only
+                # model data.
+                setattr(event, VIA_DATA_KEY, target_port)
+                self._interpreters[target].queue(event)
 
         return route
 
