@@ -68,21 +68,31 @@ def test_name_collision_disambiguated_by_relative_path(
     assert has_transition(sc, "groupB::active", "groupB::paused")
 
 
-def test_composite_out_without_done_fires_at_runtime(
+def test_composite_out_without_done_never_completes(
     model: syside.Model,
 ) -> None:
-    """An eventless transition out of a composite with no ``done`` fires.
+    """An eventless transition out of a composite with no ``done`` waits.
 
-    ``groupA`` has no ``then done`` anywhere inside it, so its outgoing
-    eventless transition is an ordinary succession, not a completion join:
-    it must fire as soon as ``groupA``'s substates settle, reaching
-    ``groupB`` at runtime.
+    ``groupA`` has no ``then done`` anywhere inside it, so completion never
+    fires on its entry (the rosetta rule): the machine stays in
+    ``groupA::paused`` instead of reaching ``groupB``.
     """
     sc = build_statechart(model, "SM08::MachineNameCollision")
     interpreter = Interpreter(sc)
     interpreter.execute()
-    assert "groupB" in interpreter.configuration
-    assert "groupB::paused" in interpreter.configuration
+    assert "groupA::paused" in interpreter.configuration
+    assert "groupB" not in interpreter.configuration
+
+
+def test_deep_composite_out_without_done_never_completes(
+    model: syside.Model,
+) -> None:
+    """``warming`` has no ``done``: its eventless exit never fires."""
+    sc = build_statechart(model, "SM08::MachineDeep")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "running::warming::high" in interpreter.configuration
+    assert "running::cool" not in interpreter.configuration
 
 
 def test_cross_boundary_out_resolves_dotted_source(
