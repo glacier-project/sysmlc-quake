@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ from sismic.model import (
     Statechart,
     Transition,
 )
+from sysmlc.codegen.names import NameRegistry
 from sysmlc.codegen.python import join_statements
 from sysmlc.codegen.structured import (
     GeneratedPythonModule,
@@ -59,6 +61,12 @@ if TYPE_CHECKING:
     from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 
 logger = logging.getLogger(__name__)
+
+
+def _generated_name(preferred: str, suffix: int) -> str:
+    """Format an internal Python symbol, preserving valid spellings."""
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", preferred)
+    return name if suffix == 0 else f"{name}_{suffix:02d}"
 
 
 @dataclass(frozen=True)
@@ -184,6 +192,7 @@ class SismicBuilder:
         self._arming_by_source: dict[str, list[str]] = {}
         self._completion_flag_by_scope: dict[str, str] = {}
         self._completion_flags_by_source: dict[str, str] = {}
+        self._names = NameRegistry(_generated_name)
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
         """Seed an attribute into sismic's flat preamble namespace.
@@ -390,11 +399,6 @@ class SismicBuilder:
                     index, trigger, transition, per_source_when, next_consumer
                 )
 
-    @staticmethod
-    def _ident(name: str) -> str:
-        """Return ``name`` as a Python-identifier-safe fragment."""
-        return name.replace("::", "__")
-
     def _declare_armed(
         self, source: str, name: str, initial: str, armed: str
     ) -> None:
@@ -424,15 +428,16 @@ class SismicBuilder:
         """
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
-        ident = self._ident(source)
-        counter = f"_n_{ident}"
+        counter = self._names.assign(f"counter:{source}", f"_n_{source}")
         delay = (
             self._render_value(trigger.duration)
             if isinstance(trigger, AfterTrigger)
             else self._render_value(trigger.instant)
         )
         assert delay is not None
-        event_name = f"_tick_{ident}_t{ordinal}"
+        event_name = self._names.assign(
+            f"tick:{source}:{ordinal}", f"_tick_{source}_t{ordinal}"
+        )
         self._planned_triggers[index] = _TimeTriggerPlan(
             event_name=event_name, counter=counter
         )
@@ -440,14 +445,16 @@ class SismicBuilder:
             self._declare_armed(source, counter, "0", f"{counter} + 1")
         # The time-trigger event self-describes which state and counter its
         # guard checks, so a runner can drop events the guard would ignore.
-        stamp = f"{TICK_METADATA_KEY}=('{source}', '{counter}')"
+        stamp = f"{TICK_METADATA_KEY}=({source!r}, {counter!r})"
         if isinstance(trigger, AfterTrigger):
             self._arming_by_source[source].append(
-                f"send('{event_name}', n={counter}, delay={delay}, {stamp})"
+                f"send({event_name!r}, n={counter}, delay={delay}, {stamp})"
             )
             return
-        delta = f"_d_{ident}_t{ordinal}"
-        tick_send = f"send('{event_name}', n={counter}, delay={delta}, {stamp})"
+        delta = self._names.assign(
+            f"delta:{source}:{ordinal}", f"_d_{source}_t{ordinal}"
+        )
+        tick_send = f"send({event_name!r}, n={counter}, delay={delta}, {stamp})"
         self._arming_by_source[source].extend(
             [
                 f"{delta} = ({delay}) - time",
@@ -472,8 +479,9 @@ class SismicBuilder:
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
         per_source_ordinal[source] = ordinal
-        ident = self._ident(source)
-        flag = f"_w_{ident}_t{ordinal}"
+        flag = self._names.assign(
+            f"when:{source}:{ordinal}", f"_w_{source}_t{ordinal}"
+        )
         consumer_priority = None
         if transition.guard is not None:
             # Distinct negatives per source, from -2 down: below the real's
@@ -534,7 +542,7 @@ class SismicBuilder:
                     # join it participates in can never legitimately fire.
                     flags.append("False")
                     continue
-                flag = f"_c_{self._ident(scope)}"
+                flag = self._names.assign(f"completion:{scope}", f"_c_{scope}")
                 self._declare_armed(state.name, flag, "False", "False")
                 self._completion_flag_by_scope[scope] = flag
                 flags.append(flag)

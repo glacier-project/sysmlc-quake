@@ -285,6 +285,12 @@ actions of its own as `on entry`/`on exit` (Section 4). Composites nest
 arbitrarily deep, and each state's name is its **full path from the def**, joined
 with `::`.
 
+State paths retain their SysML spelling, including unrestricted names such as
+`'S1.1'`. Generated Python counters, timer events, and trigger/completion flags
+use separate identifiers: punctuation becomes underscores, and collisions gain
+numeric suffixes. Runtime state configurations and timer source metadata retain
+the original state paths.
+
 ```sysml
 state def MachineNested {
     entry; then idle;
