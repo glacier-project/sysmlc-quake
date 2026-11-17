@@ -621,7 +621,9 @@ def test_rig_delivers_one_occurrence_per_receiving_exhibit(
 ) -> None:
     source = RIG_DELIVERY_MODEL
     if portless:
-        source = source.replace("accept Go via a", "accept Go")
+        source = source.replace("accept Go via a", "accept Go").replace(
+            "accept Go via b", "accept Go"
+        )
     system = build_part_system(
         _load_inline_model(tmp_path, source), "RigDelivery::sys"
     )

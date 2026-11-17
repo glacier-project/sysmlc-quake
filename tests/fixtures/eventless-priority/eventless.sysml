@@ -238,4 +238,44 @@ package EventlessPriority {
         transition first active if go then viaPlain;
         transition first active accept Restart then active;
     }
+
+    state def CompositeWhenFirst {
+        attribute hot : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child do assign hot := true then done;
+        }
+        state viaWhen;
+        state viaDone;
+        transition first outer accept when hot then viaWhen;
+        transition first outer then viaDone;
+    }
+
+    state def CompositeDoneFirst {
+        attribute hot : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child do assign hot := true then done;
+        }
+        state viaWhen;
+        state viaDone;
+        transition first outer then viaDone;
+        transition first outer accept when hot then viaWhen;
+    }
+
+    state def CompositeLateGuard {
+        attribute go : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child then done;
+        }
+        state finished;
+        transition first outer if go then finished;
+    }
 }

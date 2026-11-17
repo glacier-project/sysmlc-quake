@@ -472,6 +472,13 @@ The same rule applies in `sm12-do-action`: `MachineCompositeDo`'s `working` has 
 `then done`, so `finished` is unreachable on quake and rosetta alike (the shared
 model is not edited).
 
+> ⚠️ **Remaining alignment gap:** after completion, Quake continues to
+> evaluate a composite's outgoing eventless guards on subsequent steps.
+> A guard false at completion can therefore fire after a later attribute
+> change. Rosetta evaluates its completion alternatives on the child's
+> completion notification. This existing Quake behavior is preserved here;
+> the entry-only choice in Section 3.3 applies to leaf states.
+
 ```sysml
 state def MachineParallelJoin {
     entry;
@@ -2097,8 +2104,10 @@ A part def that exhibits **several named state defs** (a testbench rig,
 `exhibit state plant : PlantBehavior; exhibit state tb : TesterBehavior;`)
 becomes one instance per exhibit, preferably named `<usage>.<exhibit>`
 (`rig.plant`, `rig.tb`). A colliding generated name receives a suffix; literal
-single-exhibit usage names are reserved first, so no interpreter or exported
-artifact is overwritten. The exhibits share the part, so no `interface` is
+single-exhibit usage names are reserved first, preventing exact-name
+collisions in interpreters and exports. Names differing only by case can
+still collide when exported to a case-insensitive filesystem. The exhibits
+share the part, so no `interface` is
 needed: a `via` send reaches each other exhibit that accepts its signal once,
 independently of whether the accepter names a port or accepts without `via`.
 The routing manifest represents this peer delivery with `target_port: null`. The same state def exhibited twice, a signal

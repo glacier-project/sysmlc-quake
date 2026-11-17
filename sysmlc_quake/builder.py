@@ -351,7 +351,7 @@ class SismicBuilder:
         Guards see the context after entry and finite do actions. A zero
         choice means no automatic transition was eligible on this entry;
         later mutations cannot activate one. Composite completion guards
-        remain live until their required scopes finish.
+        stay gated until their required scopes finish, then remain live.
         """
         leaves = {
             state.name

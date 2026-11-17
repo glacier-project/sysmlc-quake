@@ -150,6 +150,30 @@ def test_reentry_reconsiders_automatic_guards(model: syside.Model) -> None:
 
 
 @pytest.mark.parametrize(
+    ("machine", "target"),
+    [("CompositeWhenFirst", "viaWhen"), ("CompositeDoneFirst", "viaDone")],
+)
+def test_completed_composite_and_change_use_declaration_order(
+    model: syside.Model, machine: str, target: str
+) -> None:
+    interpreter = _run(model, machine)
+    assert interpreter.context["hot"] is True
+    assert interpreter.configuration == [machine, target]
+
+
+def test_completed_composite_guard_remains_live(model: syside.Model) -> None:
+    interpreter = _run(model, "CompositeLateGuard")
+    assert interpreter.configuration == [
+        "CompositeLateGuard",
+        "outer",
+        "outer::done",
+    ]
+    interpreter.context["go"] = True
+    interpreter.execute()
+    assert interpreter.configuration == ["CompositeLateGuard", "finished"]
+
+
+@pytest.mark.parametrize(
     ("orders", "expected"),
     [
         ((None, None), "first"),
