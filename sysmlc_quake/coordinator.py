@@ -9,20 +9,22 @@ from typing import TYPE_CHECKING, cast
 
 from sismic.clock import SimulatedClock
 from sismic.interpreter import Interpreter
+from sismic.model import Event
 
 from sysmlc_quake.codegen import (
     ROUTER_CONTEXT_KEY,
     TICK_METADATA_KEY,
+    VIA_DATA_KEY,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
     from typing import Any
 
-    from sismic.model import Event, MacroStep
+    from sismic.model import MacroStep
     from sysmlc.semantics.parts.routing import PortSignalRoute
 
-    from sysmlc_quake.parts import QuakePartSystem
+    from sysmlc_quake.parts import QuakePartSystem, RigSignalRoute
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,12 @@ class CoordinatedStep:
 
     instance: str
     step: MacroStep
+
+
+class _RoutedEvent(Event):
+    """An event delivered through a connection, stamped with its port."""
+
+    __slots__ = (VIA_DATA_KEY,)
 
 
 class StopReason(enum.Enum):
@@ -54,14 +62,12 @@ class PartSystemCoordinator:
         self._clock = SimulatedClock()
         self._routes = _route_map(system.routes)
         self._interpreters = {
-            node.usage_name: Interpreter(
-                system.statecharts[node.usage_name],
-                initial_context={
-                    ROUTER_CONTEXT_KEY: self._route_for(node.usage_name)
-                },
+            name: Interpreter(
+                system.statecharts[name],
+                initial_context={ROUTER_CONTEXT_KEY: self._route_for(name)},
                 clock=self._clock,
             )
-            for node in system.graph.parts
+            for name in system.statecharts
         }
 
     @property
@@ -105,12 +111,24 @@ class PartSystemCoordinator:
             named ``signal`` or ``port`` passes through ``payload`` instead
             of clashing with them.
             """
-            targets = {
-                edge.target
+            deliveries = {
+                (edge.target, edge.target_port)
                 for edge in self._routes.get((source, port, signal), ())
             }
-            for target in sorted(targets):
-                self._interpreters[target].queue(signal, **payload)
+            for target, target_port in sorted(
+                deliveries,
+                key=lambda delivery: (delivery[0], delivery[1] or ""),
+            ):
+                if target_port is None:
+                    # Rig peers receive one occurrence independently of
+                    # accepting ports; physical interfaces remain stamped.
+                    event = Event(signal, **payload)
+                else:
+                    event = _RoutedEvent(signal, **payload)
+                    # A slot, not event data: the envelope keeps holding only
+                    # model data.
+                    setattr(event, VIA_DATA_KEY, target_port)
+                self._interpreters[target].queue(event)
 
         return route
 
@@ -186,16 +204,16 @@ def run_to_quiescence(
 
 
 def _route_map(
-    routes: tuple[PortSignalRoute, ...],
-) -> dict[tuple[str, str, str], tuple[PortSignalRoute, ...]]:
+    routes: tuple[PortSignalRoute | RigSignalRoute, ...],
+) -> dict[tuple[str, str, str], tuple[PortSignalRoute | RigSignalRoute, ...]]:
     """Group routes by their ``(source, source_port, signal)`` key.
 
     The router looks up a send's targets by that key, so pre-indexing turns
     each delivery into a dict lookup instead of a scan over all routes.
     """
-    grouped: dict[tuple[str, str, str], list[PortSignalRoute]] = defaultdict(
-        list
-    )
+    grouped: dict[
+        tuple[str, str, str], list[PortSignalRoute | RigSignalRoute]
+    ] = defaultdict(list)
     for route in routes:
         grouped[(route.source, route.source_port, route.signal)].append(route)
     return {key: tuple(value) for key, value in grouped.items()}

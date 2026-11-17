@@ -134,21 +134,20 @@ def test_do_action_emitted_into_on_entry_and_runs_once(
 ) -> None:
     """A ``do`` body lands in its carrier's ``on_entry`` and runs once.
 
-    Only the carrier state gets an ``on_entry``. For cases whose body
-    mutates attributes, executing the statechart leaves the expected
-    values in the context; for the empty and send-only cases the
-    corpus-wide invariant in test_sm_common.py covers execution.
+    The carrier's body precedes any generated entry decision. Executing
+    the statechart leaves the expected values in the context.
     """
     sc = build_statechart(model, case.state_def_qn)
-    assert sc.state_for(case.carrier).on_entry == case.expected_on_entry
-    for state_name in sc.states:
-        if state_name != case.carrier:
-            assert sc.state_for(state_name).on_entry is None
-    if case.expected_context:
-        interpreter = Interpreter(sc)
-        interpreter.execute()
-        for name, value in case.expected_context.items():
-            assert interpreter.context[name] == value
+    if case.expected_on_entry is not None:
+        entry = sc.state_for(case.carrier).on_entry
+        assert entry is not None
+        assert entry.splitlines()[
+            : len(case.expected_on_entry.splitlines())
+        ] == (case.expected_on_entry.splitlines())
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    for name, value in case.expected_context.items():
+        assert interpreter.context[name] == value
 
 
 def test_do_action_completion_enables_eventless_transition(

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import keyword
+import re
 from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
+from sysmlc.codegen.names import NameRegistry
 from sysmlc.codegen.python import (
     ATOM_PRECEDENCE,
     LIBRARY_FUNCTIONS,
@@ -13,6 +16,7 @@ from sysmlc.codegen.python import (
 )
 from sysmlc.codegen.structured import (
     DataclassRegistry,
+    GeneratedPythonModule,
     constructed_payload_definition,
     types_import_lines,
 )
@@ -47,6 +51,19 @@ def _aliased_library_functions() -> dict[str, str]:
     return aliased
 
 
+def _enum_member_name(preferred: str, suffix: int) -> str:
+    """Return an identifier that cannot activate Python Enum machinery."""
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", preferred)
+    if (
+        not name.isidentifier()
+        or name.startswith("_")
+        or keyword.iskeyword(name)
+        or name == "mro"
+    ):
+        name = f"member_{name}"
+    return name if suffix == 0 else f"{name}_{suffix:02d}"
+
+
 def math_import_lines() -> list[str]:
     """Render the aliased ``from math import ...`` preamble line.
 
@@ -77,6 +94,11 @@ ROUTER_CONTEXT_KEY = "_sysmlc_route"
 # counter variable) pair its guard checks: the builder emits it, the
 # coordinator reads it to purge stale reminders.
 TICK_METADATA_KEY = "_sysmlc_tick"
+
+# Kwarg the part-system router stamps on every delivered event: the simple
+# name of the receiving port. An accepter with ``via <port>`` guards on it;
+# an event without the stamp (queued outside a part system) matches any port.
+VIA_DATA_KEY = "_sysmlc_via"
 
 # Sismic event-data key carrying a data-bearing signal's generated payload
 # object. Modeled fields live on that object, never beside Sismic's own
@@ -209,6 +231,24 @@ class QuakeRenderNeeds:
             )
             lines.append(f"from {self.types_module} import {aliases}")
         return lines
+
+
+ENUM_BASE_IMPORT = "from enum import Enum"
+
+
+def types_module_for(
+    name: str, registry: DataclassRegistry
+) -> GeneratedPythonModule | None:
+    """Render the companion module for ``registry``, enum classes included.
+
+    Returns:
+        The module, or ``None`` when nothing was registered.
+    """
+    has_enum = any(line.endswith("(Enum):") for line in registry.class_blocks())
+    lines = registry.module_lines(
+        preceding_lines=[ENUM_BASE_IMPORT] if has_enum else ()
+    )
+    return GeneratedPythonModule(name, tuple(lines)) if lines else None
 
 
 def _enumeration_is_structured(
@@ -369,9 +409,8 @@ class SismicCodeGen(PythonCodeGen):
         the payload read from sismic's runtime ``event``, mirroring the
         field-access rewrite ``r.value`` -> ``<alias>.value``.
 
-        A reference to an enumeration literal renders as the literal's
-        projected primitive value, never as a generated enum member; the
-        projection rules live on ``_emit_enum_literal``.
+        An enumeration literal renders as its declared value or a generated
+        enum member, according to ``_emit_enum_literal``.
 
         Raises:
             UnsupportedConstructError: If the literal belongs to a structured
@@ -388,21 +427,20 @@ class SismicCodeGen(PythonCodeGen):
         return super()._emit_feature_reference(expr)
 
     def _emit_enum_literal(self, literal: syside.EnumerationUsage) -> str:
-        """Emit an enumeration literal as its projected primitive value.
+        """Emit an enumeration literal as a declared value or enum member.
 
         A literal with a declared value projects to that value's source
         (``LightColor::red`` -> ``"red"``, ``GradePoints::A`` -> ``4.0``);
         a plain symbolic literal (one whose enumeration declares no
-        attributes) projects to its own name as a Python string
-        (``Mode::idle`` -> ``"idle"``). Because plain literals project by
-        name, two enumerations with same-named plain literals project to
-        equal strings.
+        attributes) becomes a generated Python enum member
+        (``Mode::idle`` -> ``Mode.idle``). Members from different enum
+        definitions remain distinct even when their source names match.
 
         Args:
             literal: The enumeration literal referenced in an expression.
 
         Returns:
-            Python source for the literal's projected value.
+            Python source for the literal's value or generated member.
 
         Raises:
             UnsupportedConstructError: If the literal belongs to a structured
@@ -428,11 +466,54 @@ class SismicCodeGen(PythonCodeGen):
                 "single primitive projection and are not supported.",
                 node=literal,
             )
-        # A plain symbolic literal projects to its own name as a string.
         if literal.name is None:
             raise ValueError("enumeration literal has no resolved name")
+        if isinstance(owner, syside.EnumerationDefinition):
+            symbol, members = self._register_enum_class(owner)
+            return f"{symbol}.{members[literal.name]}"
         delimiter = self._context.string_delimiter
         return f"{delimiter}{literal.name}{delimiter}"
+
+    def _register_enum_class(
+        self, definition: syside.EnumerationDefinition
+    ) -> tuple[str, dict[str, str]]:
+        """Register a plain enum and return its class and member symbols.
+
+        Each literal is a member whose value is its own name, so the class
+        keeps the enumeration's identity: members of different
+        enumerations never compare equal. Member identifiers are allocated
+        separately from source names, so reserved Python Enum names retain
+        their source spelling as their value.
+
+        Raises:
+            UnsupportedConstructError: If the class name is not a valid
+                Python identifier, or collides with a different generated
+                type.
+            ValueError: If a literal has no resolved name.
+        """
+        registry = self._needs.dataclasses
+        symbol = registry.symbol_for(definition)
+        if not symbol.isidentifier() or keyword.iskeyword(symbol):
+            raise UnsupportedConstructError(
+                f"enumeration name {symbol!r} is not a valid Python identifier",
+                node=definition,
+            )
+        member_names = NameRegistry(_enum_member_name)
+        members: dict[str, str] = {}
+        for literal in definition.enumerated_values.collect():
+            if literal.name is None:
+                raise ValueError("enumeration literal has no resolved name")
+            members[literal.name] = member_names.assign(
+                literal.name, literal.name
+            )
+        lines = (
+            f"class {symbol}(Enum):",
+            *(f"    {member} = {name!r}" for name, member in members.items()),
+        )
+        registry.register(
+            symbol, str(definition.qualified_name or symbol), lines
+        )
+        return symbol, members
 
     @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:
@@ -479,9 +560,25 @@ class SismicCodeGen(PythonCodeGen):
             return external_call
         func = expr.function
         qn = None if func is None else func.qualified_name
+        languages = sorted(
+            {
+                str(member.language)
+                for member in (
+                    func.owned_elements.collect() if func is not None else []
+                )
+                if isinstance(member, syside.TextualRepresentation)
+            }
+        )
+        cause = (
+            f" It has only {', '.join(languages)} textual "
+            "representation(s); quake executes Python, so provide a "
+            "Python representation or backing module."
+            if languages
+            else ""
+        )
         raise UnsupportedConstructError(
             f"function {qn or '<unresolved>'!s} is not in quake's "
-            "supported set.",
+            f"supported set.{cause}",
             node=expr,
         )
 

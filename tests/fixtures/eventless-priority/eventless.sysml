@@ -1,5 +1,6 @@
 package EventlessPriority {
     private import ScalarValues::*;
+    private import SI::*;
 
     state def FirstTrue {
         attribute chosen : Integer := 0;
@@ -171,8 +172,7 @@ package EventlessPriority {
             do assign effects := effects + 1 then trap;
     }
 
-    // A source with an `accept when` keeps its triggerless siblings
-    // unranked, so simultaneously enabled candidates stay nondeterministic.
+    // Automatic leaf entry decisions precede change occurrences.
     state def WhenThenPlain {
         attribute hot : Boolean := false;
         attribute go : Boolean := false;
@@ -195,5 +195,87 @@ package EventlessPriority {
         transition first active accept when hot then viaWhen;
         transition first active if go then viaPlain1;
         transition first active if go then viaPlain2;
+    }
+
+    state def MixGuardedRev {
+        attribute hot : Boolean := false;
+        attribute go : Boolean := false;
+        entry; then active;
+        state active;
+        state viaGuard;
+        state viaChange;
+        transition first active if go then viaGuard;
+        transition first active accept when hot then viaChange;
+    }
+
+    state def WhenThenUnguarded {
+        attribute hot : Boolean := true;
+        entry; then active;
+        state active;
+        state viaWhen;
+        state viaPlain;
+        transition first active accept when hot then viaWhen;
+        transition first active then viaPlain;
+    }
+
+    state def ZeroTimer {
+        attribute go : Boolean := false;
+        entry; then active;
+        state active;
+        state viaTimer;
+        state viaPlain;
+        transition first active accept after 0 [s] then viaTimer;
+        transition first active if go then viaPlain;
+    }
+
+    item def Restart;
+    state def Reentry {
+        attribute go : Boolean := false;
+        attribute entries : Integer := 0;
+        entry; then active;
+        state active { entry action { assign entries := entries + 1; } }
+        state viaPlain;
+        transition first active if go then viaPlain;
+        transition first active accept Restart then active;
+    }
+
+    state def CompositeWhenFirst {
+        attribute hot : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child do assign hot := true then done;
+        }
+        state viaWhen;
+        state viaDone;
+        transition first outer accept when hot then viaWhen;
+        transition first outer then viaDone;
+    }
+
+    state def CompositeDoneFirst {
+        attribute hot : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child do assign hot := true then done;
+        }
+        state viaWhen;
+        state viaDone;
+        transition first outer then viaDone;
+        transition first outer accept when hot then viaWhen;
+    }
+
+    state def CompositeLateGuard {
+        attribute go : Boolean := false;
+        entry; then outer;
+        state outer {
+            entry; then child;
+            state child;
+            transition first child then done;
+        }
+        state finished;
+        transition first outer if go then finished;
     }
 }

@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 import syside
-from sismic.exceptions import NonDeterminismError
 from sismic.interpreter import Interpreter
 from sysmlc.semantics.statemachine.facts import (
     StateFact,
@@ -83,22 +82,95 @@ def test_each_source_of_an_automatic_chain_chooses_independently(
 
 
 @pytest.mark.parametrize(
-    ("machine", "enabled"),
+    ("machine", "enabled", "target"),
     [
-        ("WhenThenPlain", ("hot", "go")),
-        ("WhenThenTwoPlain", ("go",)),
-        ("WhenThenTwoPlain", ("hot", "go")),
+        ("WhenThenPlain", ("hot", "go"), "viaPlain"),
+        ("WhenThenPlain", ("go",), "viaPlain"),
+        ("WhenThenTwoPlain", ("go",), "viaPlain1"),
+        ("WhenThenTwoPlain", ("hot", "go"), "viaPlain1"),
+        ("MixGuardedRev", ("hot", "go"), "viaGuard"),
+        ("MixGuardedRev", ("hot",), "viaChange"),
     ],
 )
-def test_accept_when_source_keeps_triggerless_siblings_unranked(
-    model: syside.Model, machine: str, enabled: tuple[str, ...]
+def test_automatic_entry_decision_precedes_accept_when(
+    model: syside.Model, machine: str, enabled: tuple[str, ...], target: str
 ) -> None:
-    interpreter = _run(model, machine)
-    assert interpreter.configuration == [machine, "active"]
+    interpreter = Interpreter(
+        build_statechart(model, f"EventlessPriority::{machine}")
+    )
     for name in enabled:
         interpreter.context[name] = True
-    with pytest.raises(NonDeterminismError):
-        interpreter.execute()
+    interpreter.execute()
+    assert interpreter.configuration == [machine, target]
+
+
+@pytest.mark.parametrize("machine", ["WhenThenPlain", "MixGuardedRev"])
+def test_later_mutation_does_not_revive_automatic_transition(
+    model: syside.Model, machine: str
+) -> None:
+    interpreter = _run(model, machine)
+    interpreter.context["go"] = True
+    interpreter.execute()
+    assert interpreter.configuration == [machine, "active"]
+    interpreter.context["hot"] = True
+    interpreter.execute()
+    target = "viaWhen" if machine == "WhenThenPlain" else "viaChange"
+    assert interpreter.configuration == [machine, target]
+
+
+def test_unguarded_entry_decision_precedes_accept_when(
+    model: syside.Model,
+) -> None:
+    interpreter = _run(model, "WhenThenUnguarded")
+    assert interpreter.configuration == ["WhenThenUnguarded", "viaPlain"]
+
+
+@pytest.mark.parametrize("go", [False, True])
+def test_entry_decision_precedes_zero_delay_timer(
+    model: syside.Model, go: bool
+) -> None:
+    interpreter = Interpreter(
+        build_statechart(model, "EventlessPriority::ZeroTimer")
+    )
+    interpreter.context["go"] = go
+    interpreter.execute()
+    target = "viaPlain" if go else "viaTimer"
+    assert interpreter.configuration == ["ZeroTimer", target]
+
+
+def test_reentry_reconsiders_automatic_guards(model: syside.Model) -> None:
+    interpreter = _run(model, "Reentry")
+    interpreter.context["go"] = True
+    interpreter.execute()
+    assert interpreter.configuration == ["Reentry", "active"]
+    interpreter.queue("Restart")
+    interpreter.execute()
+    assert interpreter.configuration == ["Reentry", "viaPlain"]
+    assert interpreter.context["entries"] == 2
+
+
+@pytest.mark.parametrize(
+    ("machine", "target"),
+    [("CompositeWhenFirst", "viaWhen"), ("CompositeDoneFirst", "viaDone")],
+)
+def test_completed_composite_and_change_use_declaration_order(
+    model: syside.Model, machine: str, target: str
+) -> None:
+    interpreter = _run(model, machine)
+    assert interpreter.context["hot"] is True
+    assert interpreter.configuration == [machine, target]
+
+
+def test_completed_composite_guard_remains_live(model: syside.Model) -> None:
+    interpreter = _run(model, "CompositeLateGuard")
+    assert interpreter.configuration == [
+        "CompositeLateGuard",
+        "outer",
+        "outer::done",
+    ]
+    interpreter.context["go"] = True
+    interpreter.execute()
+    assert interpreter.configuration == ["CompositeLateGuard", "finished"]
 
 
 @pytest.mark.parametrize(

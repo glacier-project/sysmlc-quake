@@ -26,6 +26,14 @@ def model() -> syside.Model:
     return load_model(EXAMPLE.model_dir)
 
 
+def via_guard(condition: str) -> str:
+    """The guard of an accepter declared ``via commPort``."""
+    return (
+        "getattr(event, '_sysmlc_via', 'commPort') == 'commPort' "
+        f"and ({condition})"
+    )
+
+
 def test_send_effect_emits_send_and_drives_self_accept(
     model: syside.Model,
 ) -> None:
@@ -79,7 +87,9 @@ def test_payload_guard_reads_event_field_and_gates_at_runtime(
     sc = build_statechart(model, "SM11::MachineReadablePayloadGuard")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Measurement"
-    assert transition.guard == "_sysmlc_payload_of(event).value > 0.5"
+    assert transition.guard == via_guard(
+        "_sysmlc_payload_of(event).value > 0.5"
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -114,7 +124,9 @@ def test_payload_chain_rewrites_root_and_reads_through_chain(
     """
     sc = build_statechart(model, "SM11::MachineReadablePayloadChain")
     transition = transition_between(sc, "armed", "fired")
-    assert transition.guard == "_sysmlc_payload_of(event).sample.value > 0.5"
+    assert transition.guard == via_guard(
+        "_sysmlc_payload_of(event).sample.value > 0.5"
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -164,9 +176,8 @@ def test_mixed_reads_of_same_event_all_use_payload_reader(
         transition_between(sc, "b", "c").action
         == "captured = _sysmlc_payload_of(event).value"
     )
-    assert (
-        transition_between(sc, "c", "d").guard
-        == "_sysmlc_payload_of(event).sample.value > 0.5"
+    assert transition_between(sc, "c", "d").guard == via_guard(
+        "_sysmlc_payload_of(event).sample.value > 0.5"
     )
     assert (
         transition_between(sc, "d", "a").action
@@ -185,7 +196,7 @@ def test_integer_payload_field_read_in_guard(model: syside.Model) -> None:
     sc = build_statechart(model, "SM11::MachineReadableIntegerPayload")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Reading"
-    assert transition.guard == "_sysmlc_payload_of(event).value > 0"
+    assert transition.guard == via_guard("_sysmlc_payload_of(event).value > 0")
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -196,7 +207,7 @@ def test_boolean_payload_field_read_bare_in_guard(model: syside.Model) -> None:
     sc = build_statechart(model, "SM11::MachineReadableBooleanPayload")
     transition = transition_between(sc, "armed", "fired")
     assert transition.event == "Flagged"
-    assert transition.guard == "_sysmlc_payload_of(event).armed"
+    assert transition.guard == via_guard("_sysmlc_payload_of(event).armed")
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration
@@ -210,7 +221,9 @@ def test_mixed_primitive_payload_round_trips(model: syside.Model) -> None:
         == 'send("Mixed", _sysmlc_payload=_sysmlc_new_Mixed(armed=a, value=v, ready=r))'
     )
     transition = transition_between(sc, "armed", "fired")
-    assert transition.guard == "_sysmlc_payload_of(event).value > 1.0"
+    assert transition.guard == via_guard(
+        "_sysmlc_payload_of(event).value > 1.0"
+    )
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "fired" in interpreter.configuration

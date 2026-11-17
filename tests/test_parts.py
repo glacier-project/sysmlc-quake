@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+from sysmlc.backends.base import OutputOptions
 from sysmlc.errors import UnsupportedConstructError
 from sysmlc.sysml.foreign_artifact.base import ForeignArtifact
 from sysmlc.sysml.loading import load_model
 from sysmlc_models.sm_examples import SM_EXAMPLES_DIR
 
+from sysmlc_quake.backend import QuakeBackend
 from sysmlc_quake.coordinator import (
     PartSystemCoordinator,
     StopReason,
@@ -79,10 +82,16 @@ def test_single_channel_fan_in_is_rejected() -> None:
         build_part_system(model, "PartFanin::sys")
 
 
-def test_multi_exhibit_part_is_rejected() -> None:
-    model = load_model(MULTI)
-    with pytest.raises(UnsupportedConstructError, match="exactly one exhibit"):
-        build_part_system(model, "PartMulti::sys")
+def test_multi_exhibit_part_runs_its_exhibits_as_a_rig() -> None:
+    """Each exhibit is its own machine; signals cross by name."""
+    system = build_part_system(load_model(MULTI), "PartMulti::sys")
+    assert system.types_module is None or system.types_module.install()
+    assert sorted(system.statecharts) == ["rig.plant", "rig.tb"]
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run(max_steps=50)
+
+    assert coordinator.interpreters["rig.tb"].final
 
 
 def test_coordinator_routes_without_sender_self_copy() -> None:
@@ -493,3 +502,210 @@ def test_final_machine_is_not_polled_again(tmp_path: Path) -> None:
         if entry.instance == "sleeper" and entry.step.time > 0
     ]
     assert sleeper_steps_after_zero == []
+
+
+ACCEPT_VIA_MODEL = """
+package PartAcceptVia {
+    item def Go;
+
+    state def SenderBehavior {
+        port outPort;
+        entry; then ready;
+        state ready;
+        transition first ready do send new Go() via outPort then done;
+    }
+    state def ReceiverBehavior {
+        port rxA;
+        port rxB;
+        entry; then waiting;
+        state waiting;
+        state wrong;
+        state right;
+        transition first waiting accept Go via rxB then wrong;
+        transition first waiting accept Go via rxA then right;
+    }
+
+    part def Sender { port outPort; exhibit state : SenderBehavior; }
+    part def Receiver {
+        port rxA;
+        port rxB;
+        exhibit state : ReceiverBehavior;
+    }
+
+    part sys {
+        part tx : Sender;
+        part rx : Receiver;
+        interface tx.outPort to rx.rxA;
+    }
+}
+"""
+
+
+def test_accepter_via_port_selects_the_receiving_port(tmp_path: Path) -> None:
+    """A signal delivered on ``rxA`` fires only the ``via rxA`` accepter."""
+    model = _load_inline_model(tmp_path, ACCEPT_VIA_MODEL)
+    system = build_part_system(model, "PartAcceptVia::sys")
+    if system.types_module is not None:
+        system.types_module.install()
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run(max_steps=20)
+
+    configuration = coordinator.interpreters["rx"].configuration
+    assert "right" in configuration
+    assert "wrong" not in configuration
+
+
+TWICE_MODEL = """
+package PartTwice {
+    item def Go;
+
+    state def B {
+        port p;
+        entry; then idle;
+        state idle;
+        transition first idle accept Go via p then done;
+    }
+
+    part def Rig {
+        exhibit state a : B;
+        exhibit state b : B;
+    }
+
+    part sys { part rig : Rig; }
+}
+"""
+
+
+def test_multi_exhibit_part_rejects_the_same_state_def_twice(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, TWICE_MODEL)
+    with pytest.raises(UnsupportedConstructError, match="same state def"):
+        build_part_system(model, "PartTwice::sys")
+
+
+RIG_DELIVERY_MODEL = """
+package RigDelivery {
+    private import SI::*;
+    item def Go;
+    state def Sender {
+        port outPort;
+        entry; then idle;
+        state idle;
+        transition first idle accept after 0.1 [s]
+            do send new Go() via outPort then done;
+    }
+    state def Receiver {
+        port a;
+        port b;
+        entry; then one;
+        state one;
+        state second;
+        state twice;
+        transition first one accept Go via a then second;
+        transition first second accept Go via b then twice;
+    }
+    part def Rig {
+        exhibit state tx : Sender;
+        exhibit state rx : Receiver;
+    }
+    part sys { part rig : Rig; }
+}
+"""
+
+
+@pytest.mark.parametrize("portless", [False, True])
+def test_rig_delivers_one_occurrence_per_receiving_exhibit(
+    tmp_path: Path, portless: bool
+) -> None:
+    source = RIG_DELIVERY_MODEL
+    if portless:
+        source = source.replace("accept Go via a", "accept Go").replace(
+            "accept Go via b", "accept Go"
+        )
+    system = build_part_system(
+        _load_inline_model(tmp_path, source), "RigDelivery::sys"
+    )
+    coordinator = PartSystemCoordinator(system)
+
+    trace, reason = coordinator.run()
+
+    assert reason is StopReason.QUIESCENT
+    assert coordinator.clock.time == 0.1
+    assert "second" in coordinator.interpreters["rig.rx"].configuration
+    assert "twice" not in coordinator.interpreters["rig.rx"].configuration
+    deliveries = [
+        entry
+        for entry in trace
+        if entry.instance == "rig.rx"
+        and entry.step.event is not None
+        and entry.step.event.name == "Go"
+    ]
+    assert len(deliveries) == 1
+
+
+INSTANCE_COLLISION_MODEL = """
+package Collision {
+    private import SI::*;
+    item def Go;
+    state def A {
+        port outPort;
+        entry; then aliveA;
+        state aliveA;
+        transition first aliveA accept after 0.1 [s]
+            do send new Go() via outPort then done;
+    }
+    state def B {
+        entry; then aliveB;
+        state aliveB;
+        state received;
+        transition first aliveB accept Go then received;
+    }
+    state def C { entry; then aliveC; state aliveC; }
+    part def Rig { exhibit state a : A; exhibit state b : B; }
+    part def Single { exhibit state : C; }
+    part sys { part rig : Rig; part 'rig.a' : Single; }
+}
+"""
+
+
+@pytest.mark.parametrize("single_first", [False, True])
+def test_rig_instance_names_preserve_colliding_single_usages(
+    tmp_path: Path, single_first: bool
+) -> None:
+    source = INSTANCE_COLLISION_MODEL
+    if single_first:
+        source = source.replace(
+            "part rig : Rig; part 'rig.a' : Single;",
+            "part 'rig.a' : Single; part rig : Rig;",
+        )
+    system = build_part_system(
+        _load_inline_model(tmp_path, source), "Collision::sys"
+    )
+    assert len(system.instances) == len(system.statecharts) == 3
+    names = {instance.behavior: instance.name for instance in system.instances}
+    assert names["Collision::C"] == "rig.a"
+    assert names["Collision::A"] != "rig.a"
+    coordinator = PartSystemCoordinator(system)
+
+    coordinator.run()
+
+    assert coordinator.interpreters[names["Collision::A"]].final
+    assert (
+        "received"
+        in coordinator.interpreters[names["Collision::B"]].configuration
+    )
+    assert "aliveC" in coordinator.interpreters["rig.a"].configuration
+
+    output = tmp_path / "output"
+    QuakeBackend().write(
+        system, OutputOptions(output_dir=output, formats=("yaml",))
+    )
+    manifest = json.loads((output / "sys" / "routing.json").read_text())
+    assert len(manifest["instances"]) == 3
+    assert manifest["routes"][0]["source"] == names["Collision::A"]
+    assert manifest["routes"][0]["target"] == names["Collision::B"]
+    for behavior, name in names.items():
+        content = (output / "sys" / f"{name}.yaml").read_text()
+        assert f"alive{behavior[-1]}" in content

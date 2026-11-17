@@ -6,44 +6,56 @@ How each SysML v2 state-machine construct is translated into an executable
 
 ## Support at a glance
 
-Status of every construct, implemented and planned. **Done**: implemented.
-**Done, to refine**: implemented, with a known gap detailed in the section's
-Limitation callout. **Not yet**: not implemented.
+Status of the constructs discussed here, implemented and planned. **Done**:
+implemented within the stated boundaries, not a claim of full SysML or
+[shared execution-policy](https://github.com/glacier-project/sysmlc/blob/main/docs/journal/execution-policy.md)
+conformance. **Done, to refine**: implemented, with a known gap detailed in the
+section's Limitation callout.
+**Feasible, not covered**: a mapping exists but needs a
+`sysmlc-core` change (Section 6); meanwhile the construct is rejected with
+`UnsupportedConstructError`, never dropped. **UNFEASIBLE**: no faithful
+sismic mapping exists; the construct stays rejected and the reason is in
+"Stays rejected" (Section 7).
 
-| Construct                                                            | Status          | Notes                                                                                                                                      |
-| -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `state def` → statechart                                             | **Done**        |                                                                                                                                            |
-| `entry; then X` → `initial`                                          | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected                                |
-| `first start then X` → `initial`                                     | Done, to refine | only simple state targets are currently supported. Qualified-name targets (nested-state paths) are rejected                                |
-| leaf `state` → basic state                                           | **Done**        |                                                                                                                                            |
-| composite `state` → nested state                                     | **Done**        |                                                                                                                                            |
-| `parallel` → orthogonal state                                        | **Done**        |                                                                                                                                            |
-| `then done` → final state                                            | **Done**        |                                                                                                                                            |
-| attribute value → `preamble`                                         | Done, to refine | literal constant bindings admitted; unsupported bound expressions and assignments to bound features rejected                               |
-| composite attribute → generated dataclass                            | Done, to refine | fields materialized individually; whole-value bindings rejected                                                                            |
-| bare `transition first A then B`                                     | **Done**        |                                                                                                                                            |
-| transition into a nested state (`then running.hot`)                  | **Done**        | enters the composite bypassing its default entry; documented pair still missing in this file                                               |
-| transition spellings (`then X;`, `accept E then X;` in a state body) | Done, to refine | the standalone `first A then B;` succession (no `transition` keyword) is silently dropped                                                  |
-| `accept E` (signal) → `event`                                        | Done, to refine | concrete type channels support conforming subtypes; same-source competing signals use declaration order; accepter `via` is not checked     |
-| `if` guard → `guard`                                                 | **Done**        | same-source competing eventless transitions use declaration order, except at a source that also has an `accept when`                       |
-| `accept reading : E` payload → `_sysmlc_payload_of(event)`           | **Done**        | field references and the whole payload read the generated payload object carried in the event's dedicated data key                         |
-| `accept after` (time)                                                | **Done**        | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                  |
-| `accept at` (time)                                                   | **Done**        | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                  |
-| `accept when` (change)                                               | Done, to refine | armed flag plus consumer transition; the condition is sampled once per macro step, so an inter-step pulse is missed                        |
-| `entry`/`exit` actions                                               | Done, to refine | inline bodies supported; referenced or typed wrappers rejected                                                                             |
-| `do` action (terminating body)                                       | **Done**        | ongoing bodies (`accept`, loops) rejected for now                                                                                          |
-| transition effect → `action`                                         | Done, to refine | inline bodies supported; referenced or typed wrappers rejected                                                                             |
-| `send` → `send(...)`                                                 | **Done**        | `to <own port>` raises an internal event; a standalone `via` send is dropped with a warning (no connection); other `to` receivers rejected |
-| library function calls                                               | **Done**        | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                                             |
-| external `calc def` calls via `--python`                             | **Done**        | state definitions and part systems, on build and run; build copies the Python module beside each generated artifact group                  |
-| enum literals → projected primitive values                           | **Done**        | a valued literal emits its declared value, a plain literal its name as a string; structured enumerations rejected                          |
-| referenced / performed actions                                       | Not yet         | referenced or typed entry/exit/do/effect wrappers are rejected, including wrappers with local statements                                   |
-| `assert constraint` in a state                                       | **Done**        | asserted constraint usages become sismic `invariants`, checked while the state is active                                                   |
-| `assert constraint` on a transition                                  | Not yet         | asserted constraint usages become sismic preconditions/postconditions, checked around the firing                                           |
-| exhibit / entry point                                                | Not yet         | selecting an exhibited state usage as the build element; part systems already resolve each part def's exhibit (Section 5)                  |
-| submachine reuse (`state s1 : Sub;`)                                 | Not yet         | a state usage typed by a `state def`; today it is **silently flattened** to a leaf, losing the def's whole content                         |
-| ongoing `do` activities                                              | Not yet         | event-gated and time-gated do-loops, mixed control loops                                                                                   |
-| part systems (multi-machine)                                         | **Done**        | one interpreter per part instance on a shared clock; `interface` routes `via` sends point-to-point (Section 5)                             |
+YAML excerpts show the construct under discussion; they omit unrelated
+imports and the leaf-entry selection variables explained in Section 3.3.
+
+| Construct                                                            | Status                | Notes                                                                                                                                                                                                               |
+| -------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state def` → statechart                                             | **Done**              |                                                                                                                                                                                                                     |
+| `entry; then X` → `initial`                                          | **Done**              | only direct substate targets are supported; qualified targets are rejected (see the qualified-target row)                                                                                                           |
+| `first start then X` → `initial`                                     | **Done**              | only direct substate targets are supported; qualified targets are rejected (see the qualified-target row)                                                                                                           |
+| qualified initial target (`then a.b`)                                | Feasible, not covered | rejected today; synthetic `_init` child plus an eventless transition (Section 6)                                                                                                                                    |
+| leaf `state` → basic state                                           | **Done**              |                                                                                                                                                                                                                     |
+| composite `state` → nested state                                     | **Done**              |                                                                                                                                                                                                                     |
+| `parallel` → orthogonal state                                        | **Done**              |                                                                                                                                                                                                                     |
+| `then done` → final state                                            | **Done**              |                                                                                                                                                                                                                     |
+| attribute value → `preamble`                                         | Done, to refine       | literal constant bindings admitted; unsupported bound expressions and assignments to bound features rejected                                                                                                        |
+| composite attribute → generated dataclass                            | Done, to refine       | fields materialized individually; whole-value bindings rejected                                                                                                                                                     |
+| bare `transition first A then B`                                     | **Done**              |                                                                                                                                                                                                                     |
+| transition into a nested state (`then running.hot`)                  | **Done**              | enters the composite bypassing its default entry; documented pair still missing in this file                                                                                                                        |
+| transition spellings (`then X;`, `accept E then X;` in a state body) | **Done**              | `then X;` and `accept E then X;` in a state body are supported                                                                                                                                                      |
+| standalone `first A then B;` succession                              | Feasible, not covered | rejected today; an eventless transition `A -> B` (Section 6)                                                                                                                                                        |
+| `accept E [via port]` (signal) → `event`                             | **Done**              | concrete type channels support conforming subtypes; same-source competing signals use declaration order; `via` guards on the receiving port                                                                         |
+| `if` guard → `guard`                                                 | **Done**              | automatic leaf guards are evaluated once on entry, before time/change events; eligible alternatives use declaration order                                                                                           |
+| `accept reading : E` payload → `_sysmlc_payload_of(event)`           | **Done**              | field references and the whole payload read the generated payload object carried in the event's dedicated data key                                                                                                  |
+| `accept after` (time)                                                | **Done**              | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                                                                                           |
+| `accept at` (time)                                                   | **Done**              | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                                                                                           |
+| `accept when` (change)                                               | UNFEASIBLE            | UNFEASIBLE as an exact change event, but it still builds and runs as an approximation: an armed flag plus consumer transition, sampled once per macro step (Section 7)                                              |
+| `entry`/`exit` actions                                               | Done, to refine       | inline bodies supported; referenced or typed wrappers rejected                                                                                                                                                      |
+| `do` action (terminating body)                                       | **Done**              | ongoing bodies (`accept`, loops) rejected (Section 7)                                                                                                                                                               |
+| transition effect → `action`                                         | Done, to refine       | inline bodies supported; referenced or typed wrappers rejected                                                                                                                                                      |
+| `send` → `send(...)`                                                 | **Done**              | `to <own port>` raises an internal event; a standalone `via` send is dropped with a warning (no connection); other `to` receivers rejected                                                                          |
+| library function calls                                               | **Done**              | `NumericalFunctions::{abs,max,min}` and `TrigFunctions::{sin,cos,tan}` in expression positions                                                                                                                      |
+| external `calc def` calls via `--python`                             | **Done**              | state definitions and part systems, on build and run; build copies the Python module beside each generated artifact group                                                                                           |
+| enum literals → generated `Enum` / projected values                  | **Done**              | a plain literal is a member of a generated `Enum` class; a valued literal emits its declared value; structured enumerations rejected                                                                                |
+| referenced / performed actions                                       | Feasible, not covered | referenced or typed entry/exit/do/effect wrappers are rejected, including wrappers with local statements                                                                                                            |
+| `assert constraint` in a state                                       | **Done**              | asserted constraint usages become sismic `invariants`, checked while the state is active                                                                                                                            |
+| `assert constraint` on a transition                                  | Feasible, not covered | rejected today; maps to sismic `Transition.invariants`, checked around the firing (Section 6)                                                                                                                       |
+| exhibit / entry point                                                | Feasible, not covered | selecting an exhibited state usage as the build element; `-e` on an exhibit (`PartMulti::Rig::plant`) fails with "state definition ... not found"; part systems already resolve each part def's exhibit (Section 5) |
+| submachine reuse (`state s1 : Sub;`)                                 | Feasible, not covered | a state usage typed by a `state def`; rejected, since flattening it to a leaf would lose the def's whole content                                                                                                    |
+| ongoing `do` activities                                              | UNFEASIBLE            | sismic runs to completion; no suspendable action exists (Section 7)                                                                                                                                                 |
+| part systems (multi-machine)                                         | **Done**              | one interpreter per part instance (or per exhibit of a multi-exhibit part) on a shared clock; `interface` routes `via` sends point-to-point (Section 5)                                                             |
 
 ## How to read this
 
@@ -449,9 +461,23 @@ What reaching that final state means depends on where the scope sits:
   per SysML's AND-state semantics, a region with no path to completion means
   the whole parallel state can never complete either.
 
-A source with no `then done` anywhere among its regions stays entirely
-ungated, firing on sismic's ordinary selection like any plain eventless
-transition.
+A composite or parallel source with no `then done` anywhere inside it can
+**never complete**, so completion never fires on its entry (the rosetta rule):
+the machine stays in the composite's substates, and the eventless transition is
+gated on a literal `False`. `transition first warming then cool;` with
+`state warming { state low; state high; ... }` and no `done` leaves the machine
+in `warming`, rather than leaving it the moment it is entered.
+
+The same rule applies in `sm12-do-action`: `MachineCompositeDo`'s `working` has no
+`then done`, so `finished` is unreachable on quake and rosetta alike (the shared
+model is not edited).
+
+> ⚠️ **Remaining alignment gap:** after completion, Quake continues to
+> evaluate a composite's outgoing eventless guards on subsequent steps.
+> A guard false at completion can therefore fire after a later attribute
+> change. Rosetta evaluates its completion alternatives on the child's
+> completion notification. This existing Quake behavior is preserved here;
+> the entry-only choice in Section 3.3 applies to leaf states.
 
 ```sysml
 state def MachineParallelJoin {
@@ -727,7 +753,7 @@ dataclass instance: `isinstance(reading, AngleReading)` holds and
 
 ______________________________________________________________________
 
-### 2.3 enum literal → projected primitive value
+### 2.3 enum literal → generated `Enum` member / projected value
 
 *Corpus: `sm18-enum-literals`*
 
@@ -744,11 +770,12 @@ reference literals in attribute initial values, guards, effects, and send
 payload arguments (`attribute c : LightColor := LightColor::red`,
 `if c == LightColor::green`).
 
-Quake emits every literal reference as its **projected primitive value**,
-never as a generated enum class: a valued literal emits its declared value's
-source (`LightColor::red` emits `"red"`, `GradePoints::A` emits `4.0`), and a
-plain literal emits its own name as a Python string (`Mode::idle` emits
-`"idle"`). The projection substitutes into the reference's atom position, so a
+Quake treats the two forms differently. A **valued** literal is emitted as its
+**projected primitive value**: its declared value's source (`LightColor::red`
+emits `"red"`, `GradePoints::A` emits `4.0`). A **plain** literal is a member
+of a **generated `Enum` class** in the companion types module
+(`Mode::idle` emits `Mode.idle`, with `from <module>_types import Mode` in the
+preamble). The valued projection substitutes into the reference's atom position, so a
 computed declared value keeps its grouping (`N = 2.0 + 2.0` referenced under a
 `*` emits `(2.0 + 2.0)`).
 
@@ -786,10 +813,14 @@ statechart:
 semantics: the enumeration subtypes the scalar and each literal **is** its
 declared value, so `GradePoints::A >= 3.0` must compare numbers, which a
 generated enum class with symbolic members could not do. Plain literals have
-no primitive value, so their name string is the projection that keeps
-same-definition literals distinct and the emitted YAML readable. Nothing in
-the sismic context has to be a class, which also keeps the preamble trivially
-copyable for sismic's contract snapshots.
+no primitive value, so a generated class keeps the enumeration's **identity**:
+`Mode.idle != Phase.idle`, where name strings would compare equal. Each member's
+value is its source name, and the classes live in the same companion module as
+generated dataclasses. Reserved Python Enum names such as `mro` and `_value_`,
+and quoted names that are not Python identifiers, receive safe, distinct member
+identifiers; their `.value` retains the original spelling. Generated `.name`
+can therefore differ from the SysML name. Types referenced only in an action
+or guard are discovered before the statechart imports are emitted.
 
 > ⚠️ **Boundary:** a **structured** enumeration (one specializing an attribute
 > definition, each literal redefining fields with `:>>`) has no single
@@ -797,12 +828,12 @@ copyable for sismic's contract snapshots.
 > definition. Support would project literals to field namespaces if a model
 > ever needs it.
 
-> ⚠️ **Limitation:** the projection erases the enumeration **type identity**
-> at runtime. Two *different* plain enumerations with same-named literals
-> project to equal strings, so a cross-enumeration comparison (arguably an
-> ill-typed model) silently evaluates true instead of being flagged; and
-> nothing at simulation time enforces that an enum-typed attribute only ever
-> holds one of its declared literals.
+> ⚠️ **Limitation:** a **valued** enumeration still erases the type identity:
+> two different enumerations over the same scalar with equal values compare
+> equal. Nothing at simulation time enforces that an enum-typed attribute only
+> ever holds one of its declared literals. A plain enum member does not equal
+> its name string, so a model comparing it to a string literal no longer
+> matches.
 
 ______________________________________________________________________
 
@@ -849,8 +880,10 @@ the machinery that preserves this consumed-on-delivery behavior.
 *Spec: SysML 7.18.3 (transition usages); KerML 9.2.10.1 (transition
 performances), 9.2.11.1 (state performances)*
 
-A bare transition (no accepter, no guard) is an **eventless transition**: it
-fires as soon as `A`'s work is done.
+A bare transition (no accepter, no guard) is an **eventless transition**. For a
+leaf source it is an automatic entry alternative, evaluated after entry and
+finite `do` work. For a composite or parallel source it requires natural
+completion as described in Section 1.7.
 
 ```sysml
 state def Machine {
@@ -947,12 +980,18 @@ payload binding does not change type identity. Naming the payload (`accept readi
 (`accept Tick`) both still yield `event: Tick`: all three forms emit the same
 transition.
 
-> ⚠️ **Limitation:** the accepter's `via commPort` qualifier is **dropped**;
-> events match by name alone. A port only matters for routing on the sender's
-> side: in a part system the sender's `via` port and the `interface` decide
-> *which* machine receives the transfer (Section 5), and a single statechart
-> has nothing to route between. In both cases the accepter cannot distinguish
-> two same-named signals arriving over different ports.
+In a **part system** the accepter's `via commPort` is enforced: the router
+stamps each delivered event with the simple name of the receiving port, and the
+transition's guard gains `getattr(event, '_sysmlc_via', 'commPort') == 'commPort'`.
+Two accepters of the same signal on different ports therefore fire
+independently. The stamp is an attribute of the event object, not event data,
+so payload envelopes are unchanged. An event queued outside a part system
+carries no stamp and matches any port.
+
+> ⚠️ **Boundary:** a **single statechart** has no connections, so `via` cannot
+> select anything there: events match by name alone. Two connections of one
+> signal into different ports of one machine deliver one event per port, so an
+> accepter without `via` fires once per delivery.
 
 Build artifacts expose `qualified_channels` and `resolve_external(name)`.
 The resolver accepts qualified type names and unambiguous simple names, and
@@ -987,9 +1026,11 @@ In SysML, a **guard** is an `if <expr>` clause on a transition: a boolean
 condition that must hold for it to fire. With no accepter the transition stays
 **eventless**, but becomes **conditional**: where the bare transition above fires
 the moment its source completes, a guarded one fires only once the source is
-active **and** the guard is true. It maps to sismic's `guard` slot and the condition
-is emitted as a Python expression. The names the guard references are the
-machine's attributes, already bound in the `preamble` (Section 2.1).
+eligible **and** the guard is true. Triggered and composite-completion guards
+map to sismic's `guard` slot. Automatic leaf guards are evaluated once after
+entry and finite `do` actions, and a generated selector records the first
+eligible alternative. The names the guard references are the machine's
+attributes, already bound in the `preamble` (Section 2.1).
 
 ```sysml
 state def MachineRef {
@@ -1006,34 +1047,38 @@ state def MachineRef {
 ```yaml
 statechart:
   name: MachineRef
-  preamble: enabled = True
+  preamble: |
+    enabled = True
+    _a_idle = 0
   root state:
     initial: idle
     name: MachineRef
     states:
     - name: idle
+      on entry: _a_idle = 1 if (enabled) else 0
       transitions:
-      - {guard: enabled, target: running}
+      - {guard: _a_idle == 1, target: running}
     - {name: running}
 ```
 
-*Why:* the guard is **re-evaluated at every macro step** while the source is
-active: false only means "not yet". With no accepter there is nothing to
-consume, so this matches SysML's untriggered-transition rule exactly.
+The [shared execution policy](https://github.com/glacier-project/sysmlc/blob/main/docs/journal/execution-policy.md#eligibility-and-alternative-selection)
+chooses **entry-only automatic decisions** for leaf states. If all automatic
+guards are false at entry, later attribute changes do not revive those
+transitions. Re-entry evaluates them again. This is a SysMLC execution choice,
+not a claim that every SysML simulator must use this scheduling convention.
+Composite and parallel eventless transitions retain their separate completion
+gates (Section 1.7); they are not leaf-entry decisions.
 
-When several eventless transitions leave the same source, the first declaration
+When several automatic transitions leave the same source, the first declaration
 whose guard is true wins: false guards are skipped, and exactly one source exit
 and one effect run. A guardless transition is always eligible; it is not an
-`else` branch, so a true guarded transition declared before it still wins, and
-reversing the declarations reverses the winner. Each source of an automatic
-chain chooses this way independently. This deterministic declaration-order rule
-is the approved SysMLC profile policy; SysML selects one outgoing transition but
-mandates no priority among eligible ones. Earlier declarations get larger
-Sismic priorities, the last keeping the default. The ordering uses the same
-owned-member declaration ordinal as signal transitions (Section 3.2), including
-across nested declaration scopes; manually supplied facts retain their supplied
-order when any member of the group lacks an ordinal. Hierarchy and
-orthogonal-region selection keep Sismic's inner-first semantics.
+`else` branch, so a true guarded transition declared before it still wins.
+Each source of an automatic chain chooses independently. The ordering uses the
+same owned-member declaration ordinal as signal transitions (Section 3.2),
+including across nested declaration scopes; manually supplied facts retain
+their supplied order when any member of the group lacks an ordinal. Hierarchy
+and orthogonal-region selection retain Sismic's selection behavior; this change
+does not establish the shared policy's full hierarchy and regional scheduling.
 
 ```sysml
 state def Machine {
@@ -1051,18 +1096,18 @@ state def Machine {
 
 ```yaml
     - name: idle
+      on entry: _a_idle = 1 if (go) else 2 if (True) else 0
       transitions:
-      - {guard: go, priority: high, target: running}
-      - {target: stopped}
+      - {guard: _a_idle == 1, priority: high, target: running}
+      - {guard: _a_idle == 2, target: stopped}
 ```
 
-> ⚠️ **Limitation:** at a source that also has an `accept when` transition,
-> whose real transition is eventless as well (Section 3.6), ordinary
-> triggerless transitions and the real change transition keep their existing
-> default priority, and the change consumers keep their negative priorities.
-> Signal transitions at that source are ranked as usual. Two default-priority
-> eventless transitions enabled in the same step still raise
-> `NonDeterminismError`: no mixed eventless/change rule is chosen.
+When the source also has `accept when` transitions, a selected automatic
+alternative excludes change delivery regardless of their declaration order.
+If no automatic alternative was eligible, change observation proceeds normally.
+Sismic selects the automatic eventless transition before queued time events,
+including a zero-delay timer. Selection variables are reinitialized on entry;
+there is no continuously polled copy of an automatic guard.
 
 ### 3.4 `accept after <duration>` → one-shot delayed event
 
@@ -1418,13 +1463,13 @@ transition would exit and re-enter `idle`, re-running `on entry`: user entry
 actions would execute again and the flag would be re-armed, undoing the
 consumption. An internal transition fires its action while staying put.
 
-*Why the real transition keeps the default priority:* two transitions enabled
-from one source in the same step is, in SysML, a genuine ambiguity (7.18.3
-mandates no priority between transitions). Leaving the real transitions at the
-default priority lets sismic raise `NonDeterminismError` on such a model: the
-generator does not silently invent an order. The declaration-order rule for
-plain eventless transitions (Section 3.3) is therefore not applied at a source
-that has an `accept when`. Only the consumers are pushed out of the way, to
+*Why the real transitions are ranked:* two change transitions enabled from one
+source in the same step would otherwise reach sismic as a tie and raise
+`NonDeterminismError`. As for signals and plain eventless transitions (Section
+3.3), declaration order is their firing priority: the last declared keeps the
+default priority and each earlier one ranks above it. A leaf entry selector
+(Section 3.3) excludes change delivery while an eligible automatic transition
+is selected, including an unguarded one. The consumers are pushed out of the way, to
 distinct negative priorities so two rejected observations never collide with
 each other. One tie is decided structurally rather than by us: a `when` and a
 time trigger due at the same instant resolve **when-first**, because eventless
@@ -2055,6 +2100,21 @@ part pingSystem {
 }
 ```
 
+A part def that exhibits **several named state defs** (a testbench rig,
+`exhibit state plant : PlantBehavior; exhibit state tb : TesterBehavior;`)
+becomes one instance per exhibit, preferably named `<usage>.<exhibit>`
+(`rig.plant`, `rig.tb`). A colliding generated name receives a suffix; literal
+single-exhibit usage names are reserved first, preventing exact-name
+collisions in interpreters and exports. Names differing only by case can
+still collide when exported to a case-insensitive filesystem. The exhibits
+share the part, so no `interface` is
+needed: a `via` send reaches each other exhibit that accepts its signal once,
+independently of whether the accepter names a port or accepts without `via`.
+The routing manifest represents this peer delivery with `target_port: null`. The same state def exhibited twice, a signal
+sent by two exhibits into one accepter, and a signal sent both ways between two
+exhibits are rejected; an anonymous exhibit among several is rejected by the
+shared part graph.
+
 ### 5.1 top-level `part` usage → one statechart per instance + routing manifest
 
 `sysmlc quake build <model-dir>` on a model whose single top-level part usage
@@ -2182,15 +2242,57 @@ non-terminating closed-loop model is bounded. `--python <file>` composes with
 the CLI imports the module and starts execution (Section 4.6).
 
 > ⚠️ **Boundary:** a part system requires uniquely named part usages and
-> exactly one exhibited state per part def; multi-exhibit parts (and the rig
-> composition built on them) are rejected. A rig is expressible as a part
-> system: give each machine a part def with a port and an `interface`
-> between the two.
+> supported exhibited states per part def. Multiple named exhibits use the
+> internal rig routing above; physical interfaces to multi-exhibit parts are
+> outside this mapping.
 > Cross-machine `send ... to <receiver>` stays rejected (Section 4.5); route
 > the signal with `via` and an `interface` instead. `--values` is not supported
 > with part systems yet.
 
-> ⚠️ **Limitation:** delivery is keyed by **signal name** over the port's
-> interfaces; the accepter's own `via` qualifier is not checked, so two
-> same-named signals arriving over different connected ports of one machine
-> are not distinguishable by port.
+> ⚠️ **Boundary:** ordinary physical-interface delivery is keyed by signal
+> name over the port's interfaces
+> and the receiving port is stamped on each event, so an accepter's `via`
+> qualifier selects its port (3.2). An accepter without `via` accepts the
+> signal from every port.
+
+## 6. Feasible, not covered
+
+These constructs raise `UnsupportedConstructError` today (or, for the initial
+target, a `ValueError`/`UnsupportedConstructError` from the shared driver).
+Each needs a change in `sysmlc-core`, whose state-machine walk is shared with
+the other backends; quake cannot implement them alone.
+
+| Construct                                                                          | Intended mapping                                                                                                                                                                                          | Core change                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| standalone `first A then B;` succession                                            | an eventless transition `A -> B`; `first A if g then B` gives it the guard; included in declaration order                                                                                                 | `semantics/statemachine/driver.py` `_walk_transitions` and `transitions.container_transitions` yield only `TransitionUsage`; also take owned `SuccessionAsUsage` whose source is not `start`/`entry` |
+| `assert constraint` in a transition body                                           | sismic `Transition.invariants` (a `ContractMixin`: checked before the action and again after it); attached to the real transition only, not to the extra consumer transitions of time and change triggers | `semantics/statemachine/constraints.py` `iter_scope_constraints` walks states only; `ConstraintFact` (`facts.py`) needs a transition reference                                                       |
+| referenced / performed actions (`entry helper;`, `do helper`, perform in any slot) | expanded inline at the use site with parameter substitution (a preamble `def` cannot assign context variables, since sismic runs actions with the context as locals); recursion rejected                  | `semantics/statemachine/actions.py` `inline_actions` and the `bindings.require_assignable_actions` check in `driver.py`                                                                              |
+| exhibit as entry point                                                             | selecting an `exhibit state` usage resolves to its state definition; none, several, or anonymous exhibits fail loudly                                                                                     | `sysml/queries.py` (the `ExhibitStateUsage` helpers) and the element dispatch in `cli.py`; `semantics/parts/graph.py` already does this for parts                                                    |
+| qualified initial target (`then a.b`)                                              | sismic needs a direct child, so emit a synthetic `_init` basic child plus an eventless transition `_init -> a.b`                                                                                          | `semantics/statemachine/states.py` `resolve_initial` rejects non-direct targets before quake sees them; the driver (`_walk_states`) must pass the qualified path through                             |
+| submachine reuse (`state s1 : Sub;`)                                               | inline expansion of `Sub` under `s1` with `s1::x`-style names; per-instance attribute renaming (the preamble is flat), recursion rejected                                                                 | `semantics/statemachine/states.py` `state_kind` ignores typing; `driver.py` `_walk_states`/`_bind_attributes` must expand typed usages and rename attributes                                         |
+| derived `=` bindings                                                               | snapshot today; track by inline substitution of the bound expression at each use                                                                                                                          | `semantics/statemachine/bindings.py`                                                                                                                                                                 |
+
+## 7. Stays rejected (UNFEASIBLE or by design)
+
+Every construct without a mapping raises `UnsupportedConstructError`; quake
+never silently drops one. Constructs marked **Feasible, not covered** in the table are
+rejected until their mapping lands (Section 6). The constructs below are **UNFEASIBLE**:
+sismic has no faithful equivalent, so they stay rejected by design.
+
+| Construct                                                              | Why                                                                                                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ongoing `do` bodies (`accept`, loops, event- or time-gated activities) | a sismic action is a run-to-completion Python snippet; nothing can suspend it and resume on a later event. Only inline terminating bodies fuse into `on entry` (4.3)                        |
+| parallel regions exiting in declaration order                          | sismic's interpreter exits the regions of an orthogonal state in reverse of their entry order (`Xr2, Xr1, Xp`); the order is fixed inside sismic. Rosetta plans declaration-order exits too |
+| a C-only textual representation of a calc def                          | quake executes Python; the error names the cause (only `C` representations found)                                                                                                           |
+| a standalone `via` send with no connection                             | delivered nowhere; warned at build, never an error (rosetta also voids it)                                                                                                                  |
+| an `accept E via p` signal arriving on another port                    | discarded: the accepter's guard rejects the foreign port (3.2); the event is not an error                                                                                                   |
+| exact `accept when` change events (an inter-step pulse)                | sismic offers no hook on context change; the condition is sampled once per macro step (3.6), so a faithful event is impossible                                                              |
+
+Quake also rejects these names, as rosetta rejects its own reserved names:
+
+| Construct                                              | Why                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| a state named like its state def                       | sismic names the root state after the def, and state names must be unique |
+| a state whose name (or a path segment) starts with `_` | the `_` namespace is reserved for generated machinery                     |
+| an attribute named `abs`, `max` or `min`               | it would shadow the builtin that the library-function mapping renders to  |
+| an attribute whose name starts with `_`                | reserved for generated machinery                                          |

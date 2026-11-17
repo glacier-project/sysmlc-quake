@@ -75,7 +75,7 @@ def test_activation_counter_is_initialized_in_preamble(
 ) -> None:
     """The timed source state's activation counter starts at zero."""
     sc = build_statechart(model, "SM13::MachineAfterSeconds")
-    assert sc.preamble == quake_preamble("_n_idle = 0")
+    assert "_n_idle = 0" in sc.preamble.splitlines()
 
 
 def test_attribute_duration_default_seeds_preamble(
@@ -83,7 +83,9 @@ def test_attribute_duration_default_seeds_preamble(
 ) -> None:
     """A ``DurationValue`` attribute's default is seeded as its SI scalar."""
     sc = build_statechart(model, "SM13::MachineAfterAttribute")
-    assert sc.preamble == quake_preamble("pickDuration = 120.0", "_n_idle = 0")
+    assert {"pickDuration = 120.0", "_n_idle = 0"} <= set(
+        sc.preamble.splitlines()
+    )
 
 
 def test_chained_reference_duration_is_read_at_entry(
@@ -120,7 +122,7 @@ def test_after_with_guard_conjoins_condition_and_fires_when_true(
     timed = transition_from(sc, "idle")
     assert timed.event == "_tick_idle_t1"
     assert timed.guard == "event.n == _n_idle and (ready)"
-    assert sc.preamble == quake_preamble("ready = True", "_n_idle = 0")
+    assert {"ready = True", "_n_idle = 0"} <= set(sc.preamble.splitlines())
     interp = Interpreter(sc)
     interp.execute()
     interp.clock.time = 5.0
@@ -160,7 +162,9 @@ def test_absolute_time_trigger_arms_delta_and_fires_at_instant(
     absolute instant.
     """
     sc = build_statechart(model, "SM13::MachineAt")
-    assert sc.preamble == quake_preamble("deadlineTime = 8.0", "_n_idle = 0")
+    assert {"deadlineTime = 8.0", "_n_idle = 0"} <= set(
+        sc.preamble.splitlines()
+    )
     assert len(sc.transitions) == 2
     timed = transition_from(sc, "idle")
     assert timed.target == "running"

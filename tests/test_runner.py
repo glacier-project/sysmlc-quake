@@ -178,7 +178,7 @@ def test_run_part_system_with_external_module(
     assert report.trace
 
 
-NONDETERMINISTIC_MODEL = """
+AUTOMATIC_BEFORE_CHANGE_MODEL = """
 package RunNondet {
     private import ScalarValues::*;
 
@@ -189,7 +189,7 @@ package RunNondet {
         state left;
         state right;
         transition first idle accept when x > 0 then left;
-        transition first idle accept when x < 2 then right;
+        transition first idle then right;
     }
 }
 """
@@ -223,14 +223,10 @@ package PartIncomplete {
 """
 
 
-def test_run_state_def_wraps_nondeterminism(tmp_path: Path) -> None:
-    # Both change conditions hold at once; change transitions are not
-    # ranked by declaration order, so the conflict reaches sismic, which
-    # rejects it at runtime.
-    model = _load_inline_model(tmp_path, NONDETERMINISTIC_MODEL)
-
-    with pytest.raises(ExecutionError, match=r"[Nn]on-determinis"):
-        run_state_def(model, "RunNondet::Machine")
+def test_run_state_def_selects_automatic_before_change(tmp_path: Path) -> None:
+    model = _load_inline_model(tmp_path, AUTOMATIC_BEFORE_CHANGE_MODEL)
+    report = run_state_def(model, "RunNondet::Machine")
+    assert report.configurations == {"Machine": ["Machine", "right"]}
 
 
 def test_run_state_def_wraps_evaluation_errors(tmp_path: Path) -> None:

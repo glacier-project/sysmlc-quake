@@ -3,14 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from sismic.exceptions import NonDeterminismError
 from sismic.interpreter import Interpreter
 from sysmlc.sysml.loading import load_model
 
 from sysmlc_quake import build_statechart
 from tests.conftest import (
     SM_EXAMPLES_BY_DIR,
-    quake_preamble,
     transition_between,
     transition_from,
 )
@@ -36,7 +34,9 @@ def test_bare_change_trigger_arms_flag_and_fires_at_the_rise(
     the watched condition.
     """
     sc = build_statechart(model, "SM16::MachineWhenBare")
-    assert sc.preamble == quake_preamble("hot = False", "_w_idle_t1 = False")
+    assert {"hot = False", "_w_idle_t1 = False"} <= set(
+        sc.preamble.splitlines()
+    )
     assert sc.state_for("idle").on_entry == "_w_idle_t1 = True"
     assert len(sc.transitions) == 2
     when = transition_from(sc, "idle")
@@ -174,23 +174,23 @@ def test_two_change_triggers_fire_independently(
     assert "chilled" in interp.configuration
 
 
-def test_simultaneous_change_triggers_are_nondeterministic(
+def test_simultaneous_change_triggers_follow_declaration_order(
     model: syside.Model,
 ) -> None:
-    """Two triggers rising together is an ambiguous model: it fails loud.
+    """Two triggers rising together fire in declaration order.
 
-    SysML mandates no priority between transitions, so two enabled at the
-    same instant from one source is genuinely ambiguous. Both real transitions
-    keep the default priority, so sismic raises ``NonDeterminismError``
-    at the colliding step.
+    The real change transitions of one source are ranked, so the first
+    declared one (``hot``) wins and sismic never raises
+    ``NonDeterminismError``.
     """
     sc = build_statechart(model, "SM16::MachineWhenTwo")
     interp = Interpreter(sc)
     interp.execute()
     interp.context["hot"] = True
     interp.context["cold"] = True
-    with pytest.raises(NonDeterminismError):
-        interp.execute()
+    interp.execute()
+    assert "warmed" in interp.configuration
+    assert "chilled" not in interp.configuration
 
 
 def test_composed_condition_observes_the_whole_expression(

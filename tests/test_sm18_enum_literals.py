@@ -10,7 +10,6 @@ from sysmlc_quake import build_statechart
 from tests import _load_inline_model
 from tests.conftest import (
     SM_EXAMPLES_BY_DIR,
-    quake_preamble,
     transition_between,
 )
 
@@ -30,7 +29,7 @@ def model() -> syside.Model:
 def test_string_enum_default_projects_to_value(model: syside.Model) -> None:
     """A String-valued literal default projects to its declared value."""
     sc = build_statechart(model, "SM18::MachineStringEnum")
-    assert sc.preamble == quake_preamble('c = "red"')
+    assert 'c = "red"' in sc.preamble.splitlines()
 
 
 def test_string_enum_effect_projects_to_value(model: syside.Model) -> None:
@@ -48,7 +47,7 @@ def test_string_enum_guard_projects_and_gates_at_runtime(
     the machine reach ``matched`` once the effect wrote that value.
     """
     sc = build_statechart(model, "SM18::MachineStringEnum")
-    assert transition_between(sc, "green", "matched").guard == 'c == "green"'
+    assert 'c == "green"' in sc.state_for("green").on_entry
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "matched" in interpreter.configuration
@@ -58,7 +57,7 @@ def test_string_enum_guard_projects_and_gates_at_runtime(
 def test_real_enum_default_projects_to_float(model: syside.Model) -> None:
     """A Real-valued literal default projects to its float value."""
     sc = build_statechart(model, "SM18::MachineRealEnum")
-    assert sc.preamble == quake_preamble("g = 4.0")
+    assert "g = 4.0" in sc.preamble.splitlines()
 
 
 def test_real_enum_guard_projects_and_gates_at_runtime(
@@ -70,38 +69,42 @@ def test_real_enum_guard_projects_and_gates_at_runtime(
     the machine reach ``passed``.
     """
     sc = build_statechart(model, "SM18::MachineRealEnum")
-    assert transition_between(sc, "grading", "passed").guard == "g >= 3.0"
+    assert "g >= 3.0" in sc.state_for("grading").on_entry
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "passed" in interpreter.configuration
 
 
-def test_plain_enum_default_projects_to_name(model: syside.Model) -> None:
-    """A plain symbolic literal default projects to its name as a string."""
+def test_plain_enum_default_is_a_generated_enum_member(
+    model: syside.Model,
+) -> None:
+    """A plain symbolic literal default is a member of a generated class."""
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert sc.preamble == quake_preamble('m = "idle"')
+    assert "from SM18_MachinePlainEnum_types import Mode" in sc.preamble
+    assert "m = Mode.idle" in sc.preamble.splitlines()
 
 
-def test_plain_enum_effect_projects_to_name(model: syside.Model) -> None:
-    """A plain symbolic literal in an effect projects to its name."""
+def test_plain_enum_effect_assigns_the_member(model: syside.Model) -> None:
+    """A plain symbolic literal in an effect is the enum member."""
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert transition_between(sc, "ready", "working").action == 'm = "busy"'
+    assert transition_between(sc, "ready", "working").action == "m = Mode.busy"
 
 
-def test_plain_enum_guard_projects_and_gates_at_runtime(
+def test_plain_enum_guard_compares_members_and_gates_at_runtime(
     model: syside.Model,
 ) -> None:
     """A plain symbolic literal in a guard projects and gates the fire.
 
-    The guard string carries the projected name; at runtime it lets
-    the machine reach ``checked`` once the effect wrote that name.
+    The guard compares enum members; at runtime it lets the machine reach
+    ``checked`` once the effect wrote that member.
     """
     sc = build_statechart(model, "SM18::MachinePlainEnum")
-    assert transition_between(sc, "working", "checked").guard == 'm == "busy"'
+    assert "m == Mode.busy" in sc.state_for("working").on_entry
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "checked" in interpreter.configuration
-    assert interpreter.context["m"] == "busy"
+    assert interpreter.context["m"].name == "busy"
+    assert interpreter.context["m"] != "busy"
 
 
 def test_enum_payload_send_projects_and_drives_accept(
@@ -152,8 +155,139 @@ def test_computed_enum_value_is_parenthesized(tmp_path: Path) -> None:
     """
     model = _load_inline_model(tmp_path, COMPUTED_VALUE_MODEL)
     sc = build_statechart(model, "ComputedEnum::Machine")
-    guard = transition_between(sc, "s1", "s2").guard
-    assert guard == "x * (2.0 + 2.0) == 12.0"
+    assert "x * (2.0 + 2.0) == 12.0" in sc.state_for("s1").on_entry
     interpreter = Interpreter(sc)
     interpreter.execute()
     assert "s2" in interpreter.configuration
+
+
+IDENTITY_MODEL = """
+package EnumIdentity {
+    enum def Mode { enum idle; }
+    enum def Phase { enum idle; }
+
+    state def Machine {
+        attribute m : Mode := Mode::idle;
+        entry;
+            then a;
+        state a;
+        state same;
+        state other;
+        transition first a if m == Phase::idle then other;
+        transition first a if m == Mode::idle then same;
+    }
+}
+"""
+
+
+def test_same_named_literals_of_different_enums_stay_distinct(
+    tmp_path: Path,
+) -> None:
+    """Members of two plain enums never compare equal."""
+    model = _load_inline_model(tmp_path, IDENTITY_MODEL)
+    sc = build_statechart(model, "EnumIdentity::Machine")
+    interpreter = Interpreter(sc)
+    interpreter.execute()
+    assert "same" in interpreter.configuration
+    assert "other" not in interpreter.configuration
+
+
+SNIPPET_ONLY_MODEL = """
+package EnumSnippetOnly {
+    private import ScalarValues::*;
+    enum def Mode { enum idle; }
+    item def Go;
+    state def GuardOnly {
+        entry; then waiting;
+        state waiting;
+        state matched;
+        transition first waiting accept Go if Mode::idle == Mode::idle
+            then matched;
+    }
+    state def EffectOnly {
+        attribute matched : Boolean := false;
+        entry; then waiting;
+        state waiting;
+        state finished;
+        transition first waiting accept Go
+            do assign matched := Mode::idle == Mode::idle
+            then finished;
+    }
+}
+"""
+
+
+@pytest.mark.parametrize("machine", ["GuardOnly", "EffectOnly"])
+def test_enum_used_only_in_signal_transition_is_imported(
+    tmp_path: Path, machine: str
+) -> None:
+    model = _load_inline_model(tmp_path, SNIPPET_ONLY_MODEL)
+    interpreter = Interpreter(
+        build_statechart(model, f"EnumSnippetOnly::{machine}")
+    )
+    interpreter.execute()
+    interpreter.queue("Go")
+    interpreter.execute()
+    if machine == "GuardOnly":
+        assert "matched" in interpreter.configuration
+    else:
+        assert "finished" in interpreter.configuration
+        assert interpreter.context["matched"] is True
+
+
+MEMBER_NAMES_MODEL = """
+package EnumMemberNames {
+    enum def Mode {
+        enum mro;
+        enum member_mro;
+        enum '_value_';
+        enum '__members__';
+        enum '__init__';
+        enum 'class';
+        enum 'a-b';
+        enum a_b;
+        enum ordinary;
+    }
+    state def Machine {
+        attribute a : Mode := Mode::mro;
+        attribute b : Mode := Mode::member_mro;
+        attribute c : Mode := Mode::'_value_';
+        attribute d : Mode := Mode::'__members__';
+        attribute e : Mode := Mode::'__init__';
+        attribute f : Mode := Mode::'class';
+        attribute g : Mode := Mode::'a-b';
+        attribute h : Mode := Mode::a_b;
+        attribute i : Mode := Mode::ordinary;
+        entry; then idle;
+        state idle;
+        state matched;
+        transition first idle if a == Mode::mro and g == Mode::'a-b'
+            then matched;
+    }
+}
+"""
+
+
+def test_plain_enum_member_names_preserve_source_labels(
+    tmp_path: Path,
+) -> None:
+    model = _load_inline_model(tmp_path, MEMBER_NAMES_MODEL)
+    interpreter = Interpreter(
+        build_statechart(model, "EnumMemberNames::Machine")
+    )
+    interpreter.execute()
+    assert "matched" in interpreter.configuration
+    members = [interpreter.context[name] for name in "abcdefghi"]
+    assert [member.value for member in members] == [
+        "mro",
+        "member_mro",
+        "_value_",
+        "__members__",
+        "__init__",
+        "class",
+        "a-b",
+        "a_b",
+        "ordinary",
+    ]
+    assert len(set(members)) == len(members)
+    assert members[-1].name == "ordinary"

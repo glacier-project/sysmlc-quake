@@ -47,17 +47,17 @@ def test_transition_event_is_none(model: syside.Model) -> None:
     assert sc.transitions[0].event is None
 
 
-def test_transition_guard_is_emitted_python_source(
+def test_entry_decision_contains_emitted_guard_source(
     model: syside.Model,
 ) -> None:
-    """The transition's guard is the emitted Python source.
+    """The entry decision evaluates the emitted Python guard source.
 
     One representative expression pins the wiring of the expression
-    emitter's output into ``Transition.guard``. The full operator
+    emitter's output into ``on_entry``. The full operator
     grammar is covered per shape by ``render_expression`` tests in
     tests/codegen/test_python.py, and every SM03 machine still builds
     and executes through the corpus-wide invariant in
     test_model_scenarios.py.
     """
     sc = build_statechart(model, "SM03::MachineLogicalChain")
-    assert sc.transitions[0].guard == "a and b or c"
+    assert "if (a and b or c) else" in sc.state_for("idle").on_entry
