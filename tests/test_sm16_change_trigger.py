@@ -9,7 +9,6 @@ from sysmlc.sysml.loading import load_model
 from sysmlc_quake import build_statechart
 from tests.conftest import (
     SM_EXAMPLES_BY_DIR,
-    quake_preamble,
     transition_between,
     transition_from,
 )
@@ -35,7 +34,9 @@ def test_bare_change_trigger_arms_flag_and_fires_at_the_rise(
     the watched condition.
     """
     sc = build_statechart(model, "SM16::MachineWhenBare")
-    assert sc.preamble == quake_preamble("hot = False", "_w_idle_t1 = False")
+    assert {"hot = False", "_w_idle_t1 = False"} <= set(
+        sc.preamble.splitlines()
+    )
     assert sc.state_for("idle").on_entry == "_w_idle_t1 = True"
     assert len(sc.transitions) == 2
     when = transition_from(sc, "idle")

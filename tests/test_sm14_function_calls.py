@@ -60,7 +60,7 @@ def test_trig_call_renders_aliased_math_import(
     assert sc.preamble.splitlines()[: len(QUAKE_PREAMBLE_IMPORTS)] == list(
         QUAKE_PREAMBLE_IMPORTS
     )
-    assert transition_from(sc, "idle").guard == "_cos(x) <= 1.0"
+    assert "if (_cos(x) <= 1.0) else" in sc.state_for("idle").on_entry
 
 
 def test_trig_call_immune_to_attribute_named_cos(

@@ -6,13 +6,19 @@ How each SysML v2 state-machine construct is translated into an executable
 
 ## Support at a glance
 
-Status of every construct, implemented and planned. **Done**: implemented.
-**Done, to refine**: implemented, with a known gap detailed in the section's
-Limitation callout. **Feasible, not covered**: a mapping exists but needs a
+Status of the constructs discussed here, implemented and planned. **Done**:
+implemented within the stated boundaries, not a claim of full SysML or
+[shared execution-policy](https://github.com/glacier-project/sysmlc/blob/main/docs/journal/execution-policy.md)
+conformance. **Done, to refine**: implemented, with a known gap detailed in the
+section's Limitation callout.
+**Feasible, not covered**: a mapping exists but needs a
 `sysmlc-core` change (Section 6); meanwhile the construct is rejected with
 `UnsupportedConstructError`, never dropped. **UNFEASIBLE**: no faithful
 sismic mapping exists; the construct stays rejected and the reason is in
 "Stays rejected" (Section 7).
+
+YAML excerpts show the construct under discussion; they omit unrelated
+imports and the leaf-entry selection variables explained in Section 3.3.
 
 | Construct                                                            | Status                | Notes                                                                                                                                                                                                               |
 | -------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,7 +37,7 @@ sismic mapping exists; the construct stays rejected and the reason is in
 | transition spellings (`then X;`, `accept E then X;` in a state body) | **Done**              | `then X;` and `accept E then X;` in a state body are supported                                                                                                                                                      |
 | standalone `first A then B;` succession                              | Feasible, not covered | rejected today; an eventless transition `A -> B` (Section 6)                                                                                                                                                        |
 | `accept E [via port]` (signal) → `event`                             | **Done**              | concrete type channels support conforming subtypes; same-source competing signals use declaration order; `via` guards on the receiving port                                                                         |
-| `if` guard → `guard`                                                 | **Done**              | same-source competing eventless transitions use declaration order; a tie remains only for an unguarded triggerless transition at a source with `accept when`                                                        |
+| `if` guard → `guard`                                                 | **Done**              | automatic leaf guards are evaluated once on entry, before time/change events; eligible alternatives use declaration order                                                                                           |
 | `accept reading : E` payload → `_sysmlc_payload_of(event)`           | **Done**              | field references and the whole payload read the generated payload object carried in the event's dedicated data key                                                                                                  |
 | `accept after` (time)                                                | **Done**              | one-shot delayed `_tick_*` event armed on entry; composes with `if` guards and self-loops                                                                                                                           |
 | `accept at` (time)                                                   | **Done**              | one-shot delayed `_tick_*` event using `_d_* = instant - time`; past instants do not fire                                                                                                                           |
@@ -802,8 +808,12 @@ declared value, so `GradePoints::A >= 3.0` must compare numbers, which a
 generated enum class with symbolic members could not do. Plain literals have
 no primitive value, so a generated class keeps the enumeration's **identity**:
 `Mode.idle != Phase.idle`, where name strings would compare equal. Each member's
-value is its own name, and the classes live in the same companion module as
-generated dataclasses.
+value is its source name, and the classes live in the same companion module as
+generated dataclasses. Reserved Python Enum names such as `mro` and `_value_`,
+and quoted names that are not Python identifiers, receive safe, distinct member
+identifiers; their `.value` retains the original spelling. Generated `.name`
+can therefore differ from the SysML name. Types referenced only in an action
+or guard are discovered before the statechart imports are emitted.
 
 > ⚠️ **Boundary:** a **structured** enumeration (one specializing an attribute
 > definition, each literal redefining fields with `:>>`) has no single
@@ -863,8 +873,10 @@ the machinery that preserves this consumed-on-delivery behavior.
 *Spec: SysML 7.18.3 (transition usages); KerML 9.2.10.1 (transition
 performances), 9.2.11.1 (state performances)*
 
-A bare transition (no accepter, no guard) is an **eventless transition**: it
-fires as soon as `A`'s work is done.
+A bare transition (no accepter, no guard) is an **eventless transition**. For a
+leaf source it is an automatic entry alternative, evaluated after entry and
+finite `do` work. For a composite or parallel source it requires natural
+completion as described in Section 1.7.
 
 ```sysml
 state def Machine {
@@ -1007,9 +1019,11 @@ In SysML, a **guard** is an `if <expr>` clause on a transition: a boolean
 condition that must hold for it to fire. With no accepter the transition stays
 **eventless**, but becomes **conditional**: where the bare transition above fires
 the moment its source completes, a guarded one fires only once the source is
-active **and** the guard is true. It maps to sismic's `guard` slot and the condition
-is emitted as a Python expression. The names the guard references are the
-machine's attributes, already bound in the `preamble` (Section 2.1).
+eligible **and** the guard is true. Triggered and composite-completion guards
+map to sismic's `guard` slot. Automatic leaf guards are evaluated once after
+entry and finite `do` actions, and a generated selector records the first
+eligible alternative. The names the guard references are the machine's
+attributes, already bound in the `preamble` (Section 2.1).
 
 ```sysml
 state def MachineRef {
@@ -1026,34 +1040,38 @@ state def MachineRef {
 ```yaml
 statechart:
   name: MachineRef
-  preamble: enabled = True
+  preamble: |
+    enabled = True
+    _a_idle = 0
   root state:
     initial: idle
     name: MachineRef
     states:
     - name: idle
+      on entry: _a_idle = 1 if (enabled) else 0
       transitions:
-      - {guard: enabled, target: running}
+      - {guard: _a_idle == 1, target: running}
     - {name: running}
 ```
 
-*Why:* the guard is **re-evaluated at every macro step** while the source is
-active: false only means "not yet". With no accepter there is nothing to
-consume, so this matches SysML's untriggered-transition rule exactly.
+The [shared execution policy](https://github.com/glacier-project/sysmlc/blob/main/docs/journal/execution-policy.md#eligibility-and-alternative-selection)
+chooses **entry-only automatic decisions** for leaf states. If all automatic
+guards are false at entry, later attribute changes do not revive those
+transitions. Re-entry evaluates them again. This is a SysMLC execution choice,
+not a claim that every SysML simulator must use this scheduling convention.
+Composite and parallel eventless transitions retain their separate completion
+gates (Section 1.7); they are not leaf-entry decisions.
 
-When several eventless transitions leave the same source, the first declaration
+When several automatic transitions leave the same source, the first declaration
 whose guard is true wins: false guards are skipped, and exactly one source exit
 and one effect run. A guardless transition is always eligible; it is not an
-`else` branch, so a true guarded transition declared before it still wins, and
-reversing the declarations reverses the winner. Each source of an automatic
-chain chooses this way independently. This deterministic declaration-order rule
-is the approved SysMLC profile policy; SysML selects one outgoing transition but
-mandates no priority among eligible ones. Earlier declarations get larger
-Sismic priorities, the last keeping the default. The ordering uses the same
-owned-member declaration ordinal as signal transitions (Section 3.2), including
-across nested declaration scopes; manually supplied facts retain their supplied
-order when any member of the group lacks an ordinal. Hierarchy and
-orthogonal-region selection keep Sismic's inner-first semantics.
+`else` branch, so a true guarded transition declared before it still wins.
+Each source of an automatic chain chooses independently. The ordering uses the
+same owned-member declaration ordinal as signal transitions (Section 3.2),
+including across nested declaration scopes; manually supplied facts retain
+their supplied order when any member of the group lacks an ordinal. Hierarchy
+and orthogonal-region selection retain Sismic's selection behavior; this change
+does not establish the shared policy's full hierarchy and regional scheduling.
 
 ```sysml
 state def Machine {
@@ -1071,19 +1089,18 @@ state def Machine {
 
 ```yaml
     - name: idle
+      on entry: _a_idle = 1 if (go) else 2 if (True) else 0
       transitions:
-      - {guard: go, priority: high, target: running}
-      - {target: stopped}
+      - {guard: _a_idle == 1, priority: high, target: running}
+      - {guard: _a_idle == 2, target: stopped}
 ```
 
-> ⚠️ **Limitation:** at a source that also has an `accept when` transition,
-> whose real transition is eventless as well (Section 3.6), the real change
-> transitions and the **guarded** eventless transitions of the source are ranked
-> together by declaration order, and the change consumers keep their negative
-> priorities. Signal transitions at that source are ranked as usual. An
-> **unguarded** triggerless transition at that source stays unranked (it is
-> always enabled): enabled together with a change transition in the same step,
-> it still raises `NonDeterminismError`.
+When the source also has `accept when` transitions, a selected automatic
+alternative excludes change delivery regardless of their declaration order.
+If no automatic alternative was eligible, change observation proceeds normally.
+Sismic selects the automatic eventless transition before queued time events,
+including a zero-delay timer. Selection variables are reinitialized on entry;
+there is no continuously polled copy of an automatic guard.
 
 ### 3.4 `accept after <duration>` → one-shot delayed event
 
@@ -1443,10 +1460,9 @@ consumption. An internal transition fires its action while staying put.
 source in the same step would otherwise reach sismic as a tie and raise
 `NonDeterminismError`. As for signals and plain eventless transitions (Section
 3.3), declaration order is their firing priority: the last declared keeps the
-default priority and each earlier one ranks one step above it. The
-guarded plain eventless transitions of the source join the same declaration
-order; an unguarded one is always enabled, so it stays unranked and a tie with
-a change transition remains an error. The consumers are pushed out of the way, to
+default priority and each earlier one ranks above it. A leaf entry selector
+(Section 3.3) excludes change delivery while an eligible automatic transition
+is selected, including an unguarded one. The consumers are pushed out of the way, to
 distinct negative priorities so two rejected observations never collide with
 each other. One tie is decided structurally rather than by us: a `when` and a
 time trigger due at the same instant resolve **when-first**, because eventless
@@ -2079,10 +2095,13 @@ part pingSystem {
 
 A part def that exhibits **several named state defs** (a testbench rig,
 `exhibit state plant : PlantBehavior; exhibit state tb : TesterBehavior;`)
-becomes one instance per exhibit, named `<usage>.<exhibit>` (`rig.plant`,
-`rig.tb`). The exhibits share the part, so no `interface` or declared port is
-needed: a signal one exhibit sends reaches every other exhibit that accepts it,
-over the port the accepter names. The same state def exhibited twice, a signal
+becomes one instance per exhibit, preferably named `<usage>.<exhibit>`
+(`rig.plant`, `rig.tb`). A colliding generated name receives a suffix; literal
+single-exhibit usage names are reserved first, so no interpreter or exported
+artifact is overwritten. The exhibits share the part, so no `interface` is
+needed: a `via` send reaches each other exhibit that accepts its signal once,
+independently of whether the accepter names a port or accepts without `via`.
+The routing manifest represents this peer delivery with `target_port: null`. The same state def exhibited twice, a signal
 sent by two exhibits into one accepter, and a signal sent both ways between two
 exhibits are rejected; an anonymous exhibit among several is rejected by the
 shared part graph.
@@ -2214,15 +2233,15 @@ non-terminating closed-loop model is bounded. `--python <file>` composes with
 the CLI imports the module and starts execution (Section 4.6).
 
 > ⚠️ **Boundary:** a part system requires uniquely named part usages and
-> exactly one exhibited state per part def; multi-exhibit parts (and the rig
-> composition built on them) are rejected. A rig is expressible as a part
-> system: give each machine a part def with a port and an `interface`
-> between the two.
+> supported exhibited states per part def. Multiple named exhibits use the
+> internal rig routing above; physical interfaces to multi-exhibit parts are
+> outside this mapping.
 > Cross-machine `send ... to <receiver>` stays rejected (Section 4.5); route
 > the signal with `via` and an `interface` instead. `--values` is not supported
 > with part systems yet.
 
-> ⚠️ **Boundary:** delivery is keyed by signal name over the port's interfaces
+> ⚠️ **Boundary:** ordinary physical-interface delivery is keyed by signal
+> name over the port's interfaces
 > and the receiving port is stamped on each event, so an accepter's `via`
 > qualifier selects its port (3.2). An accepter without `via` accepts the
 > signal from every port.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from sysmlc.codegen.names import NameRegistry
 from sysmlc.codegen.structured import (
     DataclassRegistry,
     GeneratedPythonModule,
@@ -37,7 +38,7 @@ class PartInstance:
 
     A single-exhibit part is one instance named after its usage; each
     exhibit of a multi-exhibit part is one instance named
-    ``<usage>.<exhibit>``.
+    ``<usage>.<exhibit>``, with a suffix if another instance owns that name.
     """
 
     name: str
@@ -46,19 +47,35 @@ class PartInstance:
 
 
 @dataclass(frozen=True)
+class RigSignalRoute:
+    """One signal delivery between peer exhibits, without a receiving port."""
+
+    source: str
+    source_port: str
+    signal: str
+    target: str
+    target_port: None = None
+
+
+def _instance_name(preferred: str, suffix: int) -> str:
+    """Preserve instance labels and suffix only colliding spellings."""
+    return preferred if suffix == 0 else f"{preferred}_{suffix:02d}"
+
+
+@dataclass(frozen=True)
 class QuakePartSystem:
     """A compiled multi-machine quake artifact.
 
     Attributes:
         statecharts: The executable statechart of each part instance, keyed
-            by usage name. Usages exhibiting the same behavior share one
-            statechart object.
+            by its allocated instance name. Instances exhibiting the same
+            behavior share one statechart object.
     """
 
     name: str
     graph: PartGraph
     statecharts: dict[str, Statechart]
-    routes: tuple[PortSignalRoute, ...]
+    routes: tuple[PortSignalRoute | RigSignalRoute, ...]
     instances: tuple[PartInstance, ...] = ()
     types_module: GeneratedPythonModule | None = None
     qualified_channels: Mapping[str, str] = field(default_factory=dict)
@@ -94,8 +111,8 @@ def build_part_system(
 
     Raises:
         UnsupportedConstructError: If the usage composes no parts, two
-            parts share a usage name, a part def does not exhibit exactly
-            one state, or a connection fails routing validation.
+            parts share a usage name, a part exhibits an unsupported
+            combination of states, or a connection fails routing validation.
     """
     graph = part_graph(model, usage_qn)
 
@@ -112,6 +129,15 @@ def build_part_system(
 
     singles = tuple(node for node in graph.parts if len(node.behaviors) == 1)
     multis = tuple(node for node in graph.parts if len(node.behaviors) > 1)
+    names = NameRegistry(_instance_name)
+    names.reserve(*(node.usage_name for node in singles))
+    exhibit_names = {
+        (node.usage_name, exhibit): names.assign(
+            repr((node.usage_name, exhibit)), f"{node.usage_name}.{exhibit}"
+        )
+        for node in multis
+        for exhibit, _ in node.behaviors
+    }
     instances: list[PartInstance] = []
     for node in graph.parts:
         if len(node.behaviors) == 1:
@@ -123,7 +149,7 @@ def build_part_system(
         else:
             instances.extend(
                 PartInstance(
-                    f"{node.usage_name}.{exhibit}",
+                    exhibit_names[(node.usage_name, exhibit)],
                     node.definition_name,
                     behavior,
                 )
@@ -137,7 +163,7 @@ def build_part_system(
     routes = single_routes + tuple(
         edge
         for node in multis
-        for edge in _exhibit_routes(model, node, catalog)
+        for edge in _exhibit_routes(model, node, catalog, exhibit_names)
     )
 
     module_name = types_module_name(usage_qn)
@@ -176,13 +202,16 @@ def build_part_system(
 
 
 def _exhibit_routes(
-    model: syside.Model, node: PartNode, catalog: SignalCatalog
-) -> tuple[PortSignalRoute, ...]:
+    model: syside.Model,
+    node: PartNode,
+    catalog: SignalCatalog,
+    exhibit_names: Mapping[tuple[str, str], str],
+) -> tuple[RigSignalRoute, ...]:
     """Wire the exhibits of one multi-exhibit part to each other by signal.
 
     The exhibits of a part share it (a testbench rig), so a signal one
-    exhibit sends reaches every other exhibit that accepts it, over the
-    port the accepter names. Declared ports and interfaces are not needed.
+    exhibit sends reaches every other exhibit that accepts it once,
+    independently of accepting ports. Declared interfaces are not needed.
 
     Raises:
         UnsupportedConstructError: If the part exhibits one state def
@@ -199,7 +228,7 @@ def _exhibit_routes(
         exhibit: machine_interface(model, behavior, catalog=catalog)
         for exhibit, behavior in node.behaviors
     }
-    routes: list[PortSignalRoute] = []
+    routes: list[RigSignalRoute] = []
     sources: dict[tuple[str, str], str] = {}
     for source, source_face in faces.items():
         for target, target_face in faces.items():
@@ -225,18 +254,14 @@ def _exhibit_routes(
                 for source_port in _ports_carrying(
                     source_face.sent_via, signal
                 ):
-                    for target_port in _ports_carrying(
-                        target_face.accepted_via, signal
-                    ):
-                        routes.append(
-                            PortSignalRoute(
-                                f"{node.usage_name}.{source}",
-                                source_port,
-                                signal,
-                                f"{node.usage_name}.{target}",
-                                target_port,
-                            )
+                    routes.append(
+                        RigSignalRoute(
+                            exhibit_names[(node.usage_name, source)],
+                            source_port,
+                            signal,
+                            exhibit_names[(node.usage_name, target)],
                         )
+                    )
     return tuple(routes)
 
 

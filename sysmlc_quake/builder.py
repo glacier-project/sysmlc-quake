@@ -132,11 +132,9 @@ class SismicBuilder:
       when the occurrence is rejected;
     - concrete signal channels expanded by resolved conformance, with positive
       same-source declaration priorities and one concrete event per send;
-    - same-source triggerless transitions ranked by declaration order, so the
-      first one whose guard holds fires; at a source that also has an
-      ``accept when``, ordinary triggerless and real change transitions
-      keep their existing default priority and the change consumers keep
-      their negative priorities;
+    - leaf automatic transitions selected once after entry/do actions, in
+      declaration order, before change or time events; later attribute
+      changes do not revive an unsuccessful entry decision;
     - the payload envelope: a send of a type with fields carries one
       generated-class instance, constructed through the class's reserved
       ``_sysmlc_new_<Type>`` preamble alias, under the ``_sysmlc_payload``
@@ -193,6 +191,8 @@ class SismicBuilder:
         self._arming_by_source: dict[str, list[str]] = {}
         self._completion_flag_by_scope: dict[str, str] = {}
         self._completion_flags_by_source: dict[str, str] = {}
+        self._entry_choice_by_source: dict[str, str] = {}
+        self._entry_guards: dict[int, str] = {}
         self._names = NameRegistry(_generated_name)
 
     def bind_attribute(self, binding: AttributeBinding) -> None:
@@ -266,9 +266,10 @@ class SismicBuilder:
         self._collect_sends()
         self._plan_triggers()
         self._plan_completions()
-        if self._needs.external:
-            # Assemble a scratch statechart first purely to record the calls;
-            self._assemble(Statechart(name=self._name, preamble=""))
+        self._plan_entry_decisions()
+        # Discover types and external calls in actions and guards before
+        # choosing imports, including enums referenced only by a transition.
+        self._assemble(Statechart(name=self._name, preamble=""))
         imports = self._preamble_import_lines()
         for symbol in sorted(self._needs.payload_constructors):
             self._reject_imported(payload_constructor(symbol))
@@ -296,17 +297,9 @@ class SismicBuilder:
         for state in self._state_facts:
             self._emit_state(statechart, state)
         self._emit_constraints(statechart)
-        # A change trigger's real transition is eventless too, so it ranks
-        # with the guarded eventless transitions of its source: one group,
-        # ordered by declaration. An unguarded triggerless sibling at such a
-        # source stays unranked (it is always enabled, so ranking it would
-        # decide a competition the model never states); its signal ranking
-        # is unaffected.
-        when_sources = {
-            transition.source
-            for transition in self._transition_facts
-            if isinstance(transition.trigger, WhenTrigger)
-        }
+        # Leaf entry decisions exclude change observations until the
+        # selected automatic transition runs. Remaining same-source
+        # alternatives use declaration order within their event category.
         groups: dict[tuple[str, str], list[int]] = {}
         for index, transition in enumerate(self._transition_facts):
             trigger = transition.trigger
@@ -314,28 +307,14 @@ class SismicBuilder:
                 groups.setdefault((transition.source, "signal"), []).append(
                     index
                 )
-            elif isinstance(trigger, WhenTrigger) or (
-                trigger is None
-                and (
-                    transition.source not in when_sources
-                    or transition.guard is not None
-                )
-            ):
+            elif isinstance(trigger, WhenTrigger) or trigger is None:
                 groups.setdefault((transition.source, "eventless"), []).append(
                     index
                 )
         priorities: dict[int, int] = {}
         for (_, kind), indices in groups.items():
             is_signal = kind == "signal"
-            orders = [
-                self._transition_facts[index].declaration_order
-                for index in indices
-            ]
-            if all(order is not None for order in orders):
-                indices = [
-                    index
-                    for _, index in sorted(zip(orders, indices, strict=True))
-                ]
+            indices = self._declaration_order(indices)
             # Eventless ranks end at the default priority, so a lone
             # eventless transition keeps its default serialized form.
             lowest = 1 if is_signal else 0
@@ -350,9 +329,57 @@ class SismicBuilder:
                 self._planned_triggers.get(index),
                 done_finals,
                 priority=priorities.get(index, 0),
+                entry_guard=self._entry_guards.get(index),
             )
         statechart.validate()
         return statechart
+
+    def _declaration_order(self, indices: list[int]) -> list[int]:
+        """Order alternatives, retaining input order for incomplete facts."""
+        orders = [
+            self._transition_facts[index].declaration_order for index in indices
+        ]
+        if all(order is not None for order in orders):
+            return [
+                index for _, index in sorted(zip(orders, indices, strict=True))
+            ]
+        return indices
+
+    def _plan_entry_decisions(self) -> None:
+        """Select each leaf's automatic alternative once per activation.
+
+        Guards see the context after entry and finite do actions. A zero
+        choice means no automatic transition was eligible on this entry;
+        later mutations cannot activate one. Composite completion guards
+        remain live until their required scopes finish.
+        """
+        leaves = {
+            state.name
+            for state in self._state_facts
+            if state.kind is StateKind.LEAF
+        }
+        groups: dict[str, list[int]] = {}
+        for index, transition in enumerate(self._transition_facts):
+            if transition.trigger is None and transition.source in leaves:
+                groups.setdefault(transition.source, []).append(index)
+        for source, indices in groups.items():
+            choice = self._names.assign(f"entry:{source}", f"_a_{source}")
+            self._entry_choice_by_source[source] = choice
+            alternatives: list[str] = []
+            for ordinal, index in enumerate(
+                self._declaration_order(indices), start=1
+            ):
+                transition = self._transition_facts[index]
+                guard = (
+                    self._codegen.render_expression(transition.guard)
+                    if transition.guard is not None
+                    else "True"
+                )
+                alternatives.append(f"{ordinal} if ({guard}) else ")
+                self._entry_guards[index] = f"{choice} == {ordinal}"
+            self._declare_armed(
+                source, choice, "0", "".join(alternatives) + "0"
+            )
 
     def _preamble_import_lines(self) -> list[str]:
         """Return import lines before seeded context variables."""
@@ -510,10 +537,9 @@ class SismicBuilder:
     ) -> None:
         """Plan the armed-flag machinery for one ``accept when``.
 
-        The real transitions of one source are ranked with its plain
-        eventless transitions by declaration order (the last keeps the
-        default priority, earlier ones rank above it); the consumers use
-        distinct negative priorities.
+        Real transitions use declaration order; consumers use distinct
+        negative priorities. A selected leaf entry decision excludes
+        change delivery until the automatic transition has run.
         """
         source = transition.source
         ordinal = per_source_ordinal.get(source, 0) + 1
@@ -678,6 +704,7 @@ class SismicBuilder:
         done_finals: set[str],
         *,
         priority: int,
+        entry_guard: str | None,
     ) -> None:
         if transitions.self_loop_is_unstable(transition):
             raise UnsupportedConstructError(
@@ -709,7 +736,11 @@ class SismicBuilder:
                     source=transition.source,
                     target=target,
                     event=event,
-                    guard=self._guard(transition, plan, codegen),
+                    guard=(
+                        entry_guard
+                        if entry_guard is not None
+                        else self._guard(transition, plan, codegen)
+                    ),
                     action=self._statements(transition.effect, codegen),
                     priority=priority,
                 )
@@ -730,6 +761,9 @@ class SismicBuilder:
         consumes without re-running ``on entry`` (which would re-arm).
         """
         delivery = f"{plan.flag} and ({plan.condition})"
+        choice = self._entry_choice_by_source.get(transition.source)
+        if choice is not None:
+            delivery = f"{choice} == 0 and ({delivery})"
         codegen = self._transition_codegen(transition)
         guard = delivery
         if transition.guard is not None:

@@ -26,8 +26,8 @@ class ChainCase:
 
     Attributes:
         state_def_qn: Qualified name of the SM05 state def under test.
-        expected_guard: Python source the builder must place in
-            ``Transition.guard``, or ``None`` for an eventless,
+        expected_guard: Python source the builder must evaluate in the
+            entry decision, or ``None`` for an eventless,
             unguarded transition.
         expected_on_entry: Python statement the builder must place in the
             ``idle`` state's ``on_entry`` slot, or ``None``.
@@ -95,9 +95,14 @@ def test_chained_reference_emitted_and_resolved_at_runtime(
     expected values after execution.
     """
     sc = build_statechart(model, case.state_def_qn)
-    assert sc.transitions[0].guard == case.expected_guard
-    assert sc.state_for(ACTION_STATE).on_entry == case.expected_on_entry
+    entry = sc.state_for(ACTION_STATE).on_entry
+    assert entry is not None
+    if case.expected_guard is not None:
+        assert f"if ({case.expected_guard}) else" in entry
+    if case.expected_on_entry is not None:
+        assert entry.startswith(case.expected_on_entry + "\n")
     interpreter = Interpreter(sc)
     interpreter.execute()
+    assert "running" in interpreter.configuration
     for path, value in case.expected_context.items():
         assert _resolve(interpreter.context, path) == value

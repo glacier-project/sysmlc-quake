@@ -93,7 +93,10 @@ def test_assign_actions_emitted_into_slots(
 ) -> None:
     """Entry and exit assignments use their respective target slots."""
     sc = build_statechart(model, case.state_def_qn)
-    assert sc.state_for(ACTION_STATE).on_entry == case.expected_on_entry
+    if case.expected_on_entry is not None:
+        entry = sc.state_for(ACTION_STATE).on_entry
+        assert entry is not None
+        assert entry.startswith(case.expected_on_entry + "\n")
     assert sc.state_for(ACTION_STATE).on_exit == case.expected_on_exit
     assert sc.state_for(ACTION_FREE_STATE).on_entry is None
     assert sc.state_for(ACTION_FREE_STATE).on_exit is None

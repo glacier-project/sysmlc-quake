@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import keyword
+import re
 from typing import TYPE_CHECKING, ClassVar, override
 
 import syside
+from sysmlc.codegen.names import NameRegistry
 from sysmlc.codegen.python import (
     ATOM_PRECEDENCE,
     LIBRARY_FUNCTIONS,
@@ -47,6 +49,19 @@ def _aliased_library_functions() -> dict[str, str]:
         else:
             aliased[qualified_name] = target
     return aliased
+
+
+def _enum_member_name(preferred: str, suffix: int) -> str:
+    """Return an identifier that cannot activate Python Enum machinery."""
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", preferred)
+    if (
+        not name.isidentifier()
+        or name.startswith("_")
+        or keyword.iskeyword(name)
+        or name == "mro"
+    ):
+        name = f"member_{name}"
+    return name if suffix == 0 else f"{name}_{suffix:02d}"
 
 
 def math_import_lines() -> list[str]:
@@ -394,9 +409,8 @@ class SismicCodeGen(PythonCodeGen):
         the payload read from sismic's runtime ``event``, mirroring the
         field-access rewrite ``r.value`` -> ``<alias>.value``.
 
-        A reference to an enumeration literal renders as the literal's
-        projected primitive value, never as a generated enum member; the
-        projection rules live on ``_emit_enum_literal``.
+        An enumeration literal renders as its declared value or a generated
+        enum member, according to ``_emit_enum_literal``.
 
         Raises:
             UnsupportedConstructError: If the literal belongs to a structured
@@ -413,21 +427,20 @@ class SismicCodeGen(PythonCodeGen):
         return super()._emit_feature_reference(expr)
 
     def _emit_enum_literal(self, literal: syside.EnumerationUsage) -> str:
-        """Emit an enumeration literal as its projected primitive value.
+        """Emit an enumeration literal as a declared value or enum member.
 
         A literal with a declared value projects to that value's source
         (``LightColor::red`` -> ``"red"``, ``GradePoints::A`` -> ``4.0``);
         a plain symbolic literal (one whose enumeration declares no
-        attributes) projects to its own name as a Python string
-        (``Mode::idle`` -> ``"idle"``). Because plain literals project by
-        name, two enumerations with same-named plain literals project to
-        equal strings.
+        attributes) becomes a generated Python enum member
+        (``Mode::idle`` -> ``Mode.idle``). Members from different enum
+        definitions remain distinct even when their source names match.
 
         Args:
             literal: The enumeration literal referenced in an expression.
 
         Returns:
-            Python source for the literal's projected value.
+            Python source for the literal's value or generated member.
 
         Raises:
             UnsupportedConstructError: If the literal belongs to a structured
@@ -456,46 +469,51 @@ class SismicCodeGen(PythonCodeGen):
         if literal.name is None:
             raise ValueError("enumeration literal has no resolved name")
         if isinstance(owner, syside.EnumerationDefinition):
-            symbol = self._register_enum_class(owner)
-            return f"{symbol}.{literal.name}"
+            symbol, members = self._register_enum_class(owner)
+            return f"{symbol}.{members[literal.name]}"
         delimiter = self._context.string_delimiter
         return f"{delimiter}{literal.name}{delimiter}"
 
     def _register_enum_class(
         self, definition: syside.EnumerationDefinition
-    ) -> str:
-        """Register a plain enumeration's generated class; return its name.
+    ) -> tuple[str, dict[str, str]]:
+        """Register a plain enum and return its class and member symbols.
 
         Each literal is a member whose value is its own name, so the class
         keeps the enumeration's identity: members of different
-        enumerations never compare equal.
+        enumerations never compare equal. Member identifiers are allocated
+        separately from source names, so reserved Python Enum names retain
+        their source spelling as their value.
 
         Raises:
-            UnsupportedConstructError: If the enumeration or a literal name
-                is not a valid Python identifier, or the class name collides
-                with a different generated type.
+            UnsupportedConstructError: If the class name is not a valid
+                Python identifier, or collides with a different generated
+                type.
+            ValueError: If a literal has no resolved name.
         """
         registry = self._needs.dataclasses
         symbol = registry.symbol_for(definition)
-        names = [
-            str(literal.name)
-            for literal in definition.enumerated_values.collect()
-        ]
-        for name in (symbol, *names):
-            if not name.isidentifier() or keyword.iskeyword(name):
-                raise UnsupportedConstructError(
-                    f"enumeration name {name!r} is not a valid Python "
-                    "identifier",
-                    node=definition,
-                )
+        if not symbol.isidentifier() or keyword.iskeyword(symbol):
+            raise UnsupportedConstructError(
+                f"enumeration name {symbol!r} is not a valid Python identifier",
+                node=definition,
+            )
+        member_names = NameRegistry(_enum_member_name)
+        members: dict[str, str] = {}
+        for literal in definition.enumerated_values.collect():
+            if literal.name is None:
+                raise ValueError("enumeration literal has no resolved name")
+            members[literal.name] = member_names.assign(
+                literal.name, literal.name
+            )
         lines = (
             f"class {symbol}(Enum):",
-            *(f"    {name} = {name!r}" for name in names),
+            *(f"    {member} = {name!r}" for name, member in members.items()),
         )
         registry.register(
             symbol, str(definition.qualified_name or symbol), lines
         )
-        return symbol
+        return symbol, members
 
     @override
     def _emit_feature_chain(self, expr: syside.FeatureChainExpression) -> str:

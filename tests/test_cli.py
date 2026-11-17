@@ -270,7 +270,7 @@ def test_quake_run_part_system_with_python(
     assert "status=reached time bound" in capsys.readouterr().out
 
 
-NONDETERMINISTIC_MODEL = """\
+AUTOMATIC_BEFORE_CHANGE_MODEL = """\
 package Nondet {
     private import ScalarValues::*;
     state def Machine {
@@ -286,17 +286,19 @@ package Nondet {
 """
 
 
-def test_quake_run_reports_nondeterminism_cleanly(
+def test_quake_run_selects_automatic_before_change(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     model_dir = tmp_path / "model"
     model_dir.mkdir()
-    (model_dir / "m.sysml").write_text(NONDETERMINISTIC_MODEL)
+    (model_dir / "m.sysml").write_text(AUTOMATIC_BEFORE_CHANGE_MODEL)
 
     rc = main(["quake", "run", str(model_dir)])
 
-    assert rc == 1
-    assert "on-determinis" in capsys.readouterr().err
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "Machine, right" in captured.out
+    assert "on-determinis" not in captured.err
 
 
 def test_quake_run_with_missing_python_file_fails_cleanly(
